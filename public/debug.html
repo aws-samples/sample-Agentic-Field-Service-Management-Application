@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Field Service Management Application - Debug Mode"
+    />
+    <title>FSM - Debug Mode</title>
+    <!-- Load React in development mode for better error messages -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <!-- This HTML file is a template for debugging with non-minified React -->
+    <script>
+      // Simple debug script
+      document.addEventListener('DOMContentLoaded', function() {
+        const root = document.getElementById('root');
+        root.innerHTML = `
+          <div style="padding: 20px; font-family: Arial, sans-serif;">
+            <h1>Debug Mode</h1>
+            <p>This page is for debugging React errors in the FSM application.</p>
+            <p>Open the browser console (F12) to see detailed error messages.</p>
+            <p>Current React version: ${React.version}</p>
+            <div id="error-display" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;"></div>
+          </div>
+        `;
+        
+        console.log('Debug mode initialized - React version:', React.version);
+      });
+    </script>
+  </body>
+</html>

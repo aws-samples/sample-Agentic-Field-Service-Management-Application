@@ -1,0 +1,42 @@
+node_modules/
+scripts/node_modules/
+# Local container image build settings and state
+scripts/.agent-images.env
+scripts/.rebuild.log
+scripts/.rebuild-results.json
+scripts/.rebuild-results.local.json
+scripts/.runtimes.json
+scripts/.parts-image-uri.txt
+scripts/.parts-ddb-policy.json
+scripts/.billing-image.txt
+scripts/.latest-images.txt
+scripts/.agentcore-deployment-results.json
+scripts/.agent-runtime-arns.json
+scripts/.venv-agentcore-deploy/
+agentcore_gateway_config.json
+agents/agentcore_gateway_config.json
+
+# Generated local artifacts
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+semantic-review/
+
+# Build output and source maps are produced by deploy-stack.sh and must never be committed
+build/
+*.map
+
+# Local environment overrides (never commit live endpoints or keys)
+.env*.local
+.env.development.local
+.env.production.local
+
+# Deployment results that contain account IDs / ARNs
+agentcore_deployment_results.json
+.bedrock_agentcore.yaml
+lambda/*.zip
+*.bak
+
+# Editor/agent tooling specs (local only)
+.kiro/

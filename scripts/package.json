@@ -1,0 +1,14 @@
+{
+  "name": "fsm-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for FSM application",
+  "main": "update-jobs-with-customer-ids.js",
+  "scripts": {
+    "update-jobs": "node update-jobs-with-customer-ids.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.350.0",
+    "@aws-sdk/lib-dynamodb": "^3.350.0",
+    "axios": "^1.10.0"
+  }
+}

@@ -1,0 +1,13 @@
+# Ignore all files in node_modules
+node_modules/**/*
+
+# Ignore build folder
+build/**/*
+
+# Ignore specific components with React Hook warnings
+src/components/CustomerMetrics.js
+src/pages/Dashboard.js
+src/pages/Login.js
+src/pages/Parts.js
+src/pages/Scheduler.js
+src/pages/Technician.js

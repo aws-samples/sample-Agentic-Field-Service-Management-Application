@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - Main Deployment Template'
+
+Parameters:
+  ApiStageName:
+    Type: String
+    Default: prod
+    AllowedPattern: '^[A-Za-z0-9_-]+$'
+    Description: API Gateway stage name
+
+  ApiThrottleRateLimit:
+    Type: Number
+    Default: 50
+    Description: REST API stage steady-state requests per second
+
+  ApiThrottleBurstLimit:
+    Type: Number
+    Default: 100
+    Description: REST API stage burst request limit
+
+  AdminEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: Provide the exact Cognito administrator email address
+    Description: Email address for the initial administrator user
+
+  Environment:
+    Type: String
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment
+
+  LambdaCodeBucket:
+    Type: String
+    Description: Existing S3 bucket containing templates and Lambda packages
+
+  TemplatePrefix:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*$'
+    Description: Versioned S3 key prefix containing this release's nested templates
+
+  LambdaCodePrefix:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*$'
+    Description: Versioned S3 key prefix containing this release's Lambda packages
+
+  AgentRuntimeArns:
+    Type: String
+    MinLength: 2
+    Description: Validated JSON object mapping FSM agent keys to READY AgentCore runtime ARNs
+
+Resources:
+  ReactAppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'fsm-react-app-${AWS::AccountId}-${AWS::Region}-${Environment}-v9'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  # Origin Access Control: the bucket stays fully private and only this
+  # distribution (matched by SourceArn) may read objects over HTTPS.
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-react-app-oac'
+        Description: !Sub 'OAC for ${AWS::StackName} React app bucket'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ReactAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReactAppBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOACReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${ReactAppBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt ReactAppBucket.Arn
+              - !Sub '${ReactAppBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+        Origins:
+          - Id: ReactAppOrigin
+            DomainName: !GetAtt ReactAppBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: ReactAppOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'FSM-UserPool-${Environment}'
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub 'FSM-App-Client-${Environment}'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders: [COGNITO]
+
+  AdminUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      Username: !Ref AdminEmail
+      UserPoolId: !Ref UserPool
+      DesiredDeliveryMediums: [EMAIL]
+      ForceAliasCreation: false
+      UserAttributes:
+        - Name: email
+          Value: !Ref AdminEmail
+        - Name: email_verified
+          Value: 'true'
+        - Name: name
+          Value: Admin User
+
+  DynamoDBTablesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${LambdaCodeBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatePrefix}/fsm-dynamodb.yaml'
+      Parameters:
+        Environment: !Ref Environment
+
+  LambdaFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: DynamoDBTablesStack
+    Properties:
+      TemplateURL: !Sub 'https://${LambdaCodeBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatePrefix}/fsm-lambda.yaml'
+      Parameters:
+        LambdaCodeBucket: !Ref LambdaCodeBucket
+        LambdaCodePrefix: !Ref LambdaCodePrefix
+        Environment: !Ref Environment
+        UserPoolId: !Ref UserPool
+        UserPoolClientId: !Ref UserPoolClient
+        CloudFrontUrl: !Sub 'https://${CloudFrontDistribution.DomainName}'
+        AgentRuntimeArns: !Ref AgentRuntimeArns
+
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LambdaFunctionsStack
+    Properties:
+      TemplateURL: !Sub 'https://${LambdaCodeBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatePrefix}/fsm-api.yaml'
+      Parameters:
+        ApiStageName: !Ref ApiStageName
+        Environment: !Ref Environment
+        LambdaFunctionsStackName: !GetAtt LambdaFunctionsStack.Outputs.StackName
+        CloudFrontUrl: !GetAtt CloudFrontDistribution.DomainName
+        UserPoolArn: !GetAtt UserPool.Arn
+        DeploymentNonce: !Ref TemplatePrefix
+        ApiThrottleRateLimit: !Ref ApiThrottleRateLimit
+        ApiThrottleBurstLimit: !Ref ApiThrottleBurstLimit
+
+  RealTimeUpdatesStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - APIGatewayStack
+      - DynamoDBTablesStack
+      - LambdaFunctionsStack
+    Properties:
+      TemplateURL: !Sub 'https://${LambdaCodeBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatePrefix}/fsm-realtime.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        DynamoDBStackName: !GetAtt DynamoDBTablesStack.Outputs.StackName
+        LambdaStackName: !GetAtt LambdaFunctionsStack.Outputs.StackName
+        ApiStackName: !GetAtt APIGatewayStack.Outputs.StackName
+        LambdaCodeBucket: !Ref LambdaCodeBucket
+        LambdaCodePrefix: !Ref LambdaCodePrefix
+
+  DataPopulationStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamoDBTablesStack
+      - LambdaFunctionsStack
+    Properties:
+      TemplateURL: !Sub 'https://${LambdaCodeBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatePrefix}/fsm-data-population.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        LambdaFunctionsStackName: !GetAtt LambdaFunctionsStack.Outputs.StackName
+
+Outputs:
+  CloudFrontURL:
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+  APIEndpoint:
+    Value: !GetAtt APIGatewayStack.Outputs.ApiEndpoint
+  WebSocketEndpoint:
+    Value: !GetAtt APIGatewayStack.Outputs.WebSocketEndpoint
+  RestApiId:
+    Value: !GetAtt APIGatewayStack.Outputs.ApiId
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  ReactAppBucketName:
+    Value: !Ref ReactAppBucket
+  LambdaCodeBucketName:
+    Value: !Ref LambdaCodeBucket

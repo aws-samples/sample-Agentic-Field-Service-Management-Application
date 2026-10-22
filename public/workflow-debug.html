@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WorkflowTable Debug</title>
+  <!-- React and Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    button {
+      padding: 5px 10px;
+      background-color: #0073bb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005d96;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    .error {
+      color: red;
+      padding: 10px;
+      border: 1px solid red;
+      background-color: #ffeeee;
+      margin: 10px 0;
+    }
+    .status-success {
+      color: green;
+      font-weight: bold;
+    }
+    .status-processing {
+      color: blue;
+      font-weight: bold;
+    }
+    .status-error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+    
+    // Status indicator component
+    const StatusIndicator = ({ status }) => {
+      const statusClass = status.toLowerCase();
+      return (
+        <span className={`status-${statusClass}`}>
+          {status}
+        </span>
+      );
+    };
+    
+    // Simple WorkflowTable component
+    const WorkflowTable = ({ workflows, onViewWorkflow }) => {
+      console.log('WorkflowTable rendering with workflows:', workflows);
+      
+      try {
+        return (
+          <div>
+            <h2>Agent Workflows</h2>
+            <p>Total workflows: {workflows.length}</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workflows.map(item => (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.type}</td>
+                    <td><StatusIndicator status={item.status} /></td>
+                    <td>{new Date(item.startTime).toLocaleString()}</td>
+                    <td>{item.endTime ? new Date(item.endTime).toLocaleString() : '-'}</td>
+                    <td>
+                      <button onClick={() => onViewWorkflow(item)}>View Details</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      } catch (error) {
+        console.error('Error in WorkflowTable:', error);
+        return (
+          <div className="error">
+            <h2>Error in WorkflowTable</h2>
+            <pre>{error.toString()}</pre>
+            <pre>{error.stack}</pre>
+          </div>
+        );
+      }
+    };
+    
+    // Main App
+    const App = () => {
+      // Minimal mock data for testing
+      const mockWorkflows = [
+        {
+          id: 'wf-001',
+          type: 'service_call',
+          status: 'SUCCESS',
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          initiatedBy: 'System',
+          steps: []
+        },
+        {
+          id: 'wf-002',
+          type: 'maintenance_completion',
+          status: 'PROCESSING',
+          startTime: new Date(Date.now() - 3600000).toISOString(),
+          endTime: null,
+          initiatedBy: 'Technician',
+          steps: []
+        },
+        {
+          id: 'wf-003',
+          type: 'system_alert',
+          status: 'ERROR',
+          startTime: new Date(Date.now() - 7200000).toISOString(),
+          endTime: new Date(Date.now() - 7000000).toISOString(),
+          initiatedBy: 'HVAC Monitoring Agent',
+          steps: []
+        }
+      ];
+      
+      const handleViewWorkflow = (workflow) => {
+        console.log('View workflow:', workflow);
+        alert(`Viewing workflow: ${workflow.id} - ${workflow.type}`);
+      };
+      
+      return (
+        <div className="container">
+          <div className="header">
+            <h1>WorkflowTable Debug</h1>
+            <p>This is a standalone debug page for the WorkflowTable component.</p>
+            <p>React version: {React.version}</p>
+          </div>
+          
+          <WorkflowTable 
+            workflows={mockWorkflows} 
+            onViewWorkflow={handleViewWorkflow} 
+          />
+        </div>
+      );
+    };
+    
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

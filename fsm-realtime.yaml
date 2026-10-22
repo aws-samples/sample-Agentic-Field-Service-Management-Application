@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - Real-time Updates Configuration'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: 'prod'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'prod'
+    Description: Deployment environment
+  
+  DynamoDBStackName:
+    Type: String
+    Description: Name of the DynamoDB stack
+  
+  LambdaStackName:
+    Type: String
+    Description: Name of the Lambda functions stack
+  
+  ApiStackName:
+    Type: String
+    Description: Name of the API stack
+
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing the Lambda code
+
+  LambdaCodePrefix:
+    Type: String
+    Default: lambda
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*$'
+    Description: Versioned S3 key prefix containing this release's Lambda packages
+
+Resources:
+  # DynamoDB Stream Handler Function
+  DynamoStreamHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-DynamoStreamHandler-${Environment}'
+      Handler: dynamoStreamHandler.handler
+      Role: !ImportValue 
+        Fn::Sub: "${LambdaStackName}-RealtimeBroadcastRoleArn"
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/dynamoStreamHandler.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Sub 'FSM-WebSocketConnections-${Environment}'
+          WEBSOCKET_ENDPOINT: !ImportValue 
+            Fn::Sub: "${ApiStackName}-WebSocketEndpoint"
+
+  # Event Source Mapping for DynamoDB Metrics Stream
+  MetricsStreamEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !ImportValue 
+        Fn::Sub: "${DynamoDBStackName}-MetricsTableStreamArn"
+      FunctionName: !Ref DynamoStreamHandlerFunction
+      StartingPosition: LATEST
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 5
+
+  # HVAC metrics simulator: runs every minute, writes metrics, and pushes them to
+  # WebSocket subscribers. Lives here because it needs the WebSocket endpoint export.
+  MetricsSimulatorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-MetricsSimulator-${Environment}'
+      Handler: metricsSimulatorFunction.handler
+      Role: !ImportValue
+        Fn::Sub: "${LambdaStackName}-RealtimeBroadcastRoleArn"
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/metricsSimulatorFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          SIMULATOR_CONFIG_TABLE: !Sub 'FSM-SimulatorConfig-${Environment}'
+          CUSTOMER_TABLE: !Sub 'FSM-Customers-${Environment}'
+          METRICS_TABLE: !Sub 'FSM-Metrics-${Environment}'
+          CONNECTIONS_TABLE: !Sub 'FSM-WebSocketConnections-${Environment}'
+          WEBSOCKET_ENDPOINT: !ImportValue
+            Fn::Sub: "${ApiStackName}-WebSocketEndpoint"
+          ENVIRONMENT: !Ref Environment
+
+  # EventBridge Rule to trigger Simulator Lambda every minute
+  FSMSimulatorSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'fsm-hvac-simulator-schedule-${Environment}'
+      Description: Triggers the HVAC Simulator Lambda function every minute
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt MetricsSimulatorFunction.Arn
+          Id: FSMSimulatorTarget
+
+  # Permission for EventBridge to invoke Simulator Lambda
+  FSMSimulatorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MetricsSimulatorFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt FSMSimulatorSchedule.Arn
+
+Outputs:
+  MetricsStreamEventSourceMappingId:
+    Description: ID of the DynamoDB stream event source mapping
+    Value: !Ref MetricsStreamEventSourceMapping
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsStreamEventSourceMappingId'
+
+  RealTimeUpdatesStatus:
+    Description: Status of real-time updates configuration
+    Value: 'Enabled'
+    Export:
+      Name: !Sub '${AWS::StackName}-RealTimeUpdatesStatus'

@@ -1,0 +1,50 @@
+{
+  "name": "cloudscape-hello-world",
+  "version": "0.1.0",
+  "private": true,
+  "homepage": ".",
+  "dependencies": {
+    "@aws-amplify/auth": "^6.13.3",
+    "@aws-amplify/core": "^6.12.3",
+    "@cloudscape-design/components": "^3.0.1016",
+    "@cloudscape-design/global-styles": "^1.0.44",
+    "aws-amplify": "^6.15.3",
+    "aws-sdk": "^2.1692.0",
+    "axios": "^1.10.0",
+    "leaflet": "^1.9.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-leaflet": "^4.2.1",
+    "react-router-dom": "^7.6.3",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "debug": "REACT_APP_DEBUG=true react-scripts start",
+    "deploy": "node -e \"console.error('Unsupported legacy deployment. Use ./deploy-stack.sh --help'); process.exit(1)\"",
+    "deploy:lambda": "node -e \"console.error('Unsupported legacy deployment. Use ./deploy-stack.sh --help'); process.exit(1)\"",
+    "deploy:s3webapp": "node -e \"console.error('Unsupported legacy deployment. Use ./deploy-stack.sh --help'); process.exit(1)\"",
+    "deploy:s3": "node -e \"console.error('Unsupported legacy deployment. Use ./deploy-stack.sh --help'); process.exit(1)\""
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

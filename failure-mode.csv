@@ -1,0 +1,652 @@
+AWS Service,Potential Failure Mode,Potential Impact of Failure,Severity (1 is insignificant-10 is catastrophic),Potential causes of failure,Probability of Failure (1 is extremely unlikely - 10 is inevitable),Alerts or process controls in place to avoid impact to end customer,Failure Detection Score (1 is abolutely certain to detect - 10 is certain to not detect),Risk Priority Number ( Severity x Probability x Detection score),Recommended Actions,Owners,Target Completion Date
+AWS IoT Core / IoT Device Shadow,,,,,,,,,,,
+,MQTT Connection Failures (Device connection failures),"Device offline, lost messages, failed operations",9,"Certificate authentication failures
+ Network connectivity issues
+ Client ID conflicts
+ Keep-alive timeout
+ Policy restrictions
+ Connection throttling",7,"Connection metrics
+ Authentication failure logs
+ Client connection monitoring
+ Keep-alive tracking",,,"Monitor connection health
+ Implement reconnection logic
+ Certificate management
+ Network diagnostics
+ Review security policies",,
+,Message Delivery Issues (Failed message delivery),"Lost device data, missed commands, incomplete operations",8,"QoS configuration issues
+ Topic policy restrictions
+ Message size limits
+ Rate limiting/throttling
+ Network latency",6,"Message delivery metrics
+ Publish/Subscribe monitoring
+ QoS tracking
+ Throttle monitoring",,,"Implement message buffering
+ Monitor delivery rates
+ Optimize message size
+ QoS level review
+ Rate limit management",,
+,Rule Engine Failures (Message rule processing failures),"Failed data routing, missed actions, broken integrations",7,"SQL syntax errors
+ IAM permission issues
+ Service integration failures
+ Resource access problems
+ Rule throttling",5,"Rule execution metrics
+ Error monitoring
+ Action success tracking
+ Resource access logs",,,"Rule testing
+ Permission validation
+ Monitor rule execution
+ Error handling
+ Resource scaling",,
+,Device Shadow Sync Issues,"Inconsistent device state, failed updates, data conflicts",7,"Network connectivity issues
+ Version conflicts
+ Update throttling
+ Shadow document size limits",6,"Shadow sync metrics
+ Version conflict tracking
+ Update success rate",,,"Monitor shadow updates
+ Implement conflict resolution
+ Optimize shadow size
+ Test sync scenarios",,
+,Shadow Document Management (Shadow document management issues),"Failed updates, storage limits, performance degradation",7,"Document size exceeded
+ Frequent updates
+ Invalid JSON format
+ Concurrent update conflicts
+ Missing required fields",6,"Document size monitoring
+ Update frequency tracking
+ Format validation checks
+ Conflict detection",,,"Document size optimization
+ Update rate management
+ Format validation
+ Conflict handling
+ Field validation",,
+,Security and Authorization (Security policy/authorization failures),"Unauthorized access, blocked operations, security breaches",9,"Invalid certificates
+ Policy misconfiguration
+ Role permission issues
+ Expired credentials
+ Authentication failures
+ - Probability: 6",6,"Auth failure monitoring
+ Policy validation
+ Certificate tracking
+ Access logs",,,"Regular policy review
+ Certificate management
+ Access monitoring
+ Security audits
+ Auth testing",,
+,Performance and Scaling (Performance degradation/scaling issues),"High latency, message drops, connection failures",8,"Connection limits reached
+ Message throughput exceeded
+ Resource constraints
+ Network bandwidth limits
+ Service quotas reached",5,"Performance metrics
+ Resource utilization
+ Quota monitoring
+ Throttling metrics",,,"Capacity planning
+ Performance monitoring
+ Quota management
+ Scale testing
+ Resource optimization",,
+,,,,,,,,,,,
+AWS IoT Device Management,,,,,,,,,,,
+,Device Registration/Provisioning Failures (Failed device registration or provisioning),"Devices unable to connect, delayed deployment, security risks",8,"Certificate creation errors
+ Policy attachment failures
+ Thing type misconfigurations
+ Bulk registration issues
+ API throttling during mass provisioning",6,"Registration success metrics
+ Certificate creation monitoring
+ Provisioning error logs
+ Fleet registration status",,,"Implement proper error handling
+ Monitor registration process
+ Validate certificates
+ Test bulk provisioning
+ Document registration procedures",,
+,Fleet Indexing Issues,"Inaccurate device search, incomplete fleet management",6,"Index configuration errors
+ Custom field issues
+ Aggregation type mismatches
+ Fleet size limitations
+ Indexing capacity constraints",5,"Index status monitoring
+ Search query performance
+ Index update metrics",,,"Monitor indexing performance
+ Optimize custom fields
+ Regular index maintenance
+ Validate search queries",,
+,OTA Update Failures (Failed firmware/software updates),"Device malfunction, security vulnerabilities, rollback issues",9,"Insufficient device storage
+ Network connectivity issues
+ Code signing problems
+ Update package corruption
+ Device state conflicts",7,"Update success rate monitoring
+ Rollback tracking
+ Device status monitoring
+ Update job metrics",,,"Implement staged rollouts
+ Monitor update progress
+ Test rollback procedures
+ Validate update packages
+ Track device states",,
+,Device Group Management Issues,"Incorrect policy application, mismanaged updates",7,"Dynamic group query errors
+ Static group maintenance issues
+ Policy attachment failures
+ Hierarchy conflicts",5,"Group membership tracking
+ Policy application monitoring
+ Group update metrics",,,"Validate group queries
+ Monitor group changes
+ Regular policy reviews
+ Test hierarchy changes",,
+,Device Monitoring/Metrics Issues ( Failed device monitoring or metrics collection),"Missing operational data, delayed alerts, incomplete insights",8,"Metric collection failures
+ CloudWatch integration issues
+ Custom metric errors
+ Monitoring rule failures",6,"Metric ingestion tracking
+ Alert triggering monitoring
+ Data completeness checks",,,"Validate metric collection
+ Test alerting rules
+ Monitor data pipeline
+ Regular metric review",,
+,Security/Authentication Issues (Device authentication/authorization failures),"Connection failures, unauthorized access, security breaches",9,"Certificate expiration
+ Policy misconfiguration
+ Authentication timeout
+ Key rotation failures",6,"Auth failure monitoring
+ Certificate status tracking
+ Policy validation checks",,,"Monitor certificate lifecycle
+ Regular policy audits
+ Implement key rotation
+ Test auth procedures",,
+,Job Execution Issues (Failed device jobs or commands),"Failed maintenance tasks, incomplete device updates",7,"Job timeout issues
+ Device offline status
+ Execution errors
+ Concurrent job conflicts",5,"Job success rate monitoring
+ Execution status tracking
+ Timeout monitoring",,,"Monitor job execution
+ Implement retry logic
+ Track device status
+ Test concurrent jobs",,
+,,,,,,,,,,,
+AWS IoT SiteWise,,,,,,,,,,,
+,Data Ingestion Failures (Failed data ingestion from edge devices/gateways),"Missing industrial data, incomplete asset metrics, broken analytics",8,"
+ Gateway connectivity issues
+ OPC-UA source problems
+ Protocol adapter failures
+ Network bandwidth limitations
+ Gateway CPU/memory constraints",6,"
+ Gateway health metrics
+ Ingestion failure alarms
+ Data point monitoring
+ Gateway diagnostics logs",,,"
+ Monitor gateway health
+ Implement proper error handling
+ Configure data buffering
+ Regular gateway maintenance",,
+,Gateway Performance Issues (Gateway processing delays or failures),"Data latency, missed measurements, system overload",8,"
+ Resource constraints
+ Too many data sources
+ High polling frequency
+ Network bandwidth limitations
+ Storage bottlenecks",6,"
+ CPU/Memory monitoring
+ Network performance metrics
+ Source connection status
+ Processing latency tracking",,,"
+ Optimize resource allocation
+ Monitor gateway performance
+ Adjust polling frequencies
+ Scale gateway resources",,
+,Data Stream Processing Failures,"Delayed data updates, missing metrics, stale dashboard data",7,"
+ Stream throttling
+ Processing backlog
+ Rule engine failures
+ Service quota limits",5,"
+ Stream metrics monitoring
+ Processing lag tracking
+ Error rate monitoring",,,"
+ Monitor stream health
+ Implement backpressure handling
+ Scale processing capacity
+ Regular performance review",,
+,Portal Visualization Issues,"Incorrect data display, user experience issues",6,"
+ Portal access issues
+ Dashboard configuration errors
+ Property permission problems
+ Browser compatibility issues",4,"
+ Portal access logs
+ User error reporting
+ Dashboard load metrics",,,"
+ Regular portal testing
+ Validate user permissions
+ Monitor portal performance
+ Update documentation",,
+,Edge Computing Issues,"Local computation errors, delayed insights, data loss",7,"
+ Edge connector failures
+ Local storage issues
+ Computation errors
+ Synchronization problems",5,"
+ Edge metrics monitoring
+ Processor health checks
+ Sync status tracking",,,"
+ Monitor edge processing
+ Implement local redundancy
+ Regular maintenance checks
+ Update edge software",,
+,Integration/API Issues,"Failed data access, broken integrations, application errors",7,"
+ API throttling
+ Permission issues
+ Rate limiting
+ Integration timeout",5,"
+ API error monitoring
+ Integration health checks
+ Throttling metrics",,,"
+ Monitor API usage
+ Implement retry logic
+ Regular integration testing
+ Review API quotas",,
+API Gateway,,,,,,,,,,,
+,Throttling and Rate Limiting Issues (API requests being throttled),"Failed requests, poor user experience, lost transactions",8,"
+Account-level throttling limits reached
+Usage plan limits exceeded
+Burst limits exceeded
+Stage-level throttling misconfiguration
+Method-level throttling misconfiguration",7,"
+ 429 error rate monitoring
+ Throttling metrics in CloudWatch
+ Usage plan utilization metrics",,,"
+ Implement proper retry mechanisms
+ Request limit increases if needed
+ Configure appropriate usage plans
+ Implement client-side throttling",,
+,Integration Timeouts (Backend integration timeouts),"504 Gateway Timeout errors, incomplete transactions",8,"
+ Backend service latency
+ Network connectivity issues
+ Lambda cold starts
+ Resource constraints in backend",6,"
+ Integration latency metrics
+ 504 error monitoring
+ Backend health checks",,,"
+Adjust timeout settings
+Enable Execution Logs with Full Request and Response option while troubleshooting as the logs contain entire information of API request flow
+Implement circuit breakers
+Monitor backend health
+Optimize backend performance",,
+,CORS Configuration Issues,Failed API calls from web applications,7,"
+ Missing CORS headers
+ Incorrect CORS configuration
+ Missing OPTIONS methods
+ Mismatched allowed origins",8,"
+ OPTIONS request monitoring
+ CORS error tracking in client logs",,,"
+ Validate CORS configurations
+ Test with multiple origins
+ Implement proper CORS headers
+ Regular testing of preflight requests",,
+,Cache Issues (Cache Issues),"Increased backend load, higher latency",6,"
+ Incorrect cache key configuration
+ Cache invalidation issues
+ Cache capacity limitations
+ TTL misconfiguration",5,"
+ Cache hit/miss metrics
+ Latency monitoring
+ Backend request count",,,"
+Optimize cache settings
+Monitor cache effectiveness
+Implement proper invalidation
+Regular cache performance review
+Monitor CloudWatch metrics of Cache utilization",,
+,WAF Integration Issues (WAF rule enforcement failures),"Security vulnerabilities, blocked legitimate traffic",9,"
+ Incorrect WAF rules
+ Rule evaluation timeouts
+ Rate limiting misconfiguration
+ IP restriction issues",4,"
+ WAF rule match counts
+ Blocked request monitoring
+ WAF error logs",,,"
+ Regular WAF rule review
+ Test WAF configurations
+ Monitor false positives
+ Maintain IP allowlists",,
+,Custom Domain/SSL Issues (Certificate or domain configuration failures),"API accessibility issues, SSL errors",8,"
+ Expired certificates
+ Domain validation issues
+ DNS configuration errors
+ Regional endpoint mismatches",4,"
+ Certificate expiration monitoring
+ DNS health checks
+ SSL validation monitoring",,,"
+ Monitor certificate expiration
+ Implement automated renewal
+ Regular DNS validation
+ Test domain configurations",,
+Lambda,,,,,,,,,,,
+,High cold start latency,"Increased response times, poor user experience, timeouts",7,"
+ Infrequently invoked functions
+ Large deployment packages
+ VPC-connected functions
+ Runtime initialization overhead",8,"
+ CloudWatch Logs for initialization times
+ X-Ray tracing for detailed latency analysis",,,"
+Implement provisioned concurrency for functions which have time restrictions (Implementing provisioned concurrency incurs additional  expenses.)
+Implement SnapStart if suitable for the application as it is lower-priced than provisioned concurrency
+Optimize deployment package size
+Use lightweight runtimes
+Implement keep-warm strategies",,
+,Function execution exceeds timeout limit,"Incomplete processing, data inconsistency, error responses",8,"
+ Code Issues
+ External service dependencies
+ timeout issues
+ Resource constraints (memory/CPU)",6,"
+ CloudWatch Logs for execution times
+ Timeout error metrics",,,"
+Optimize function code
+Increase timeout settings if necessary
+Implement asynchronous processing for long-running tasks
+Monitor and optimize external dependencies
+Check networking configuration for lambda functions within VPC",,
+,Throttling due to concurrency limits,"Dropped invocations, increased latency, application errors",9,"
+ Unexpected traffic spikes
+ Insufficient reserved concurrency
+ Account-level concurrency limits reached",7,"
+ Throttle metrics in CloudWatch
+ Concurrent execution metrics",,,"
+ Implement reserved concurrency for critical functions
+ Request concurrency limit increases
+ Use async invocations with SQS for traffic smoothing
+ Implement retry mechanisms with exponential backoff",,
+,Memory/CPU Constraints (Function performance degradation),"Increased execution time, higher costs, potential timeouts",6,"
+ Insufficient allocated memory
+ CPU-intensive operations
+ Memory leaks",5,"
+ CloudWatch Logs for memory usage
+ Duration metrics correlated with memory settings",,,"
+ Profile functions to optimize memory allocation
+ Implement automatic memory configuration tools
+ Optimize code for CPU and memory efficiency
+ Monitor and address memory leaks",,
+,Dependency Issue (Broken or outdated dependencies),"Function errors, security vulnerabilities, inconsistent behavior",8,"
+ Outdated libraries
+ Incompatible dependency versions
+ Missing dependencies in deployment package",6,"
+ CloudWatch Logs for dependency-related errors
+ Regular security scans of dependencies",,,"
+Implement automated dependency updates
+Use dependency lockfiles
+Regular security scanning of dependencies
+Provide appropriate permissions to dependencies
+Comprehensive testing after dependency updates
+Create the deployment packages/ dependencies using same underlying OS while making use of managed runtimes",,
+,IAM Role and Permission Issues (Insufficient or excessive permissions),"Function failures, security risks, unauthorized access",9," Overly permissive IAM roles
+ Missing required permissions
+ Incorrect resource ARNs in policies",5,"
+ CloudTrail logs for permission-related issues
+ CloudWatch Logs for access denied errors", , ,"
+Implement least privilege principle
+Regularly audit and review IAM roles
+Regularly audit and review resource policies of Lambda functions
+Use IAM Access Analyzer
+Implement proper error handling for permission issues",,
+DynamoDB,,,,,,,,,,,
+,Hot Partition Issues,"Performance degradation, throttling, increased latency",8,"Poor partition key design, uneven workload distribution",7,"CloudWatch metrics and Contributor Insights for throttling, consumed capacity monitoring",,,"Implement proper partition key design, enable auto-scaling",,
+,Capacity Management Issues (Provisioned capacity exhaustion),"Request throttling, application timeouts",7,"Under-provisioned capacity, traffic spikes",6,CloudWatch alarms for consumed capacity,,,"Enable auto-scaling, consider moving to on-demand mode, monitor usage patterns",,
+,Query Performance Issues (latency),High latency,6,inefficient access patterns,5,CloudWatch metrics for latency,,,"Add appropriate indexes, optimize query patterns",,
+,Data Consistency Issues (Eventually consistent reads providing stale data),inconsistency between reads,5,"Eventually consistent read model, high write rate",4,CloudWatch Metrics, , ,Use strongly consistent reads,,
+,Backup/Recovery Issues (Failed backup or restore operations),"Data loss risk, recovery time impact",9,"Configuration errors, permission issues and limits",3,CloudWatch Metrics for AWS Backup. CTrail logs for DDB Backups,,,Enable Continuous Backup and PITR,,
+,Transaction Failures,"Data inconsistency, application errors",8," Concurrent modifications, Transaction timeout, Exceeded transaction limits, Capacity constraints, Network issues",5,CloudWatch metrics for transactions monitoring, , ,"Design for idempotency, Implement proper retry mechanisms",,
+,Global Table Replication Issues (Replication delays or failures,"Cross-region data inconsistency, application errors, degraded failover capability",9,Possible hot partition issue,5,"ReplicationLatency CloudWatch metric, CloudWatch metrics and Contributor Insights for throttling, consumed capacity monitoring",,,"Monitor replication metrics, Regular failover testing",,
+,Global Table Add New Replica / Limit Increase,Unable to create new replicas across regions,9,GT Limits,8,CTrail logs for failed operation.,,,Work with Support to increase the required GT limits,,
+Kinesis Data Streams,,,,,,,,,,,
+,Throughput/Scaling Issues,"Data loss, increased latency, throttling",9,"
+ Hot shard scenarios
+ Inadequate shard capacity
+ Uneven data distribution
+ Producer throttling
+ Consumer throughput limits",7,"
+ WriteProvisionedThroughputExceeded metric
+ ReadProvisionedThroughputExceeded metric
+ PutRecord/PutRecords success rates
+ Shard utilization monitoring",,,"
+ Implement proper partition keys
+ Auto-scaling configuration
+ Monitor shard metrics
+ Optimize producer/consumer code
+ Consider resharding strategies",,
+,Consumer Group Management (Consumer application issues),"Delayed processing, duplicate records, missed data",8,"
+ Checkpoint failures
+ Consumer crashes
+ Leasing problems
+ Record expiration
+ Consumer group conflicts",6,"
+ MillisBehindLatest metric
+ GetRecords success rate
+ Iterator age monitoring
+ Lease table metrics",,,"
+ Implement proper error handling
+ Checkpoint management
+ Monitor consumer health
+ Lease management optimization
+ Regular maintenance of DynamoDB lease table",,
+,Data Retention Issues,"Lost data, compliance issues, processing gaps",8,"
+ Retention period exceeded
+ Stream capacity limits
+ Slow consumer processing
+ Data expiration
+ Storage limitations",5,"
+ Stream retention monitoring
+ Data age metrics
+ Storage capacity tracking
+ Consumer lag monitoring",,,"
+ Adjust retention period
+ Monitor data lifecycle
+ Optimize consumer processing
+ Implement archival strategy
+ Regular capacity planning",,
+,Producer Application Issues (Data ingestion failures),"Failed writes, data loss, inconsistent ordering",8,"
+ Network issues
+ API throttling
+ Record size limits
+ Batching problems
+ Retry exhaustion",6,"
+ PutRecord/PutRecords success rate
+ Throttling events
+ Failed record count
+ Retry metrics",,,"
+ Implement retry logic
+ Optimize batch sizes
+ Monitor producer health
+ Network resilience
+ Error handling improvement",,
+,Enhanced Fan-Out Issues,"Slow processing, increased costs, consumer delays",7,"
+ Subscription management issues
+ HTTP/2 stream problems
+ Consumer deregistration failures
+ Network stability issues",5,"
+ Subscription active status
+ Stream health metrics
+ Consumer registration status
+ Throughput monitoring",,,"
+ Monitor subscription health
+ Optimize consumer count
+ Network stability checks
+ Regular maintenance
+ Cost optimization",,
+,Encryption/Security Issues,"Data exposure, compliance violations, access issues",9,"
+ KMS key issues
+ Permission problems
+ Policy misconfiguration
+ Encryption errors
+ Role access issues",4,"Encryption status
+ KMS error monitoring
+ Access denied metrics
+ Security audit logs
+ ",,,"
+ Regular security audits
+ KMS key rotation
+ Permission validation
+ Encryption verification
+ Access review",,
+,Resharding Operations failures,"Capacity issues, processing delays, increased costs",7,"
+ Split/merge failures
+ Timing issues
+ Concurrent operation conflicts
+ Resource limitations
+ Consumer adaptation issues",5,"
+ Shard operation metrics
+ Stream status monitoring
+ Consumer lag during resharding
+ Capacity utilization",,,"
+ Plan resharding carefully
+ Monitor operations
+ Consumer testing
+ Capacity validation
+ Documentation updates",,
+,Stream Monitoring/Observability (Monitoring and visibility issues),"Delayed problem detection, troubleshooting difficulties",6,"
+ Insufficient metrics
+ Log configuration issues
+ CloudWatch integration
+ Alarm configuration
+ Dashboard problems",5,"
+ Metric availability
+ Log completeness
+ Alarm effectiveness
+ Dashboard accuracy",,,"
+ Implement comprehensive monitoring
+ Configure proper alerts
+ Regular dashboard updates
+ Metric validation
+ Logging strategy review",,
+MSK,,,,,,,,,,,
+,"High Broker Partition Count - Leading unresponsive cluster, causing connection latency","Cluster will be overloaded due to which cluster can go unresponsive and cause application downtime. Prevents operations like: Update the cluster configuration,
+ Update the Apache Kafka version for the cluster,
+ Update the cluster to a smaller broker type,
+ Associate an AWS Secrets Manager secret with a cluster that has SASL/SCRAM authentication, Missing Kafka metrics on CloudWatch and on Prometheus scraping",7,"Creating topics without proper planning as per best practices
+ Setting unnecessarily high replication factors.
+ Maintaining unused topics that consume resources.
+Uneven/skewed partition distribution strategies. Lack of regular monitoring and rebalancing. Over-partitioning without considering actual throughput needs. Underestimating resource requirements during cluster planning.",8,"CloudWatch Metrics: 
+1. PartitionCount: Primary metric for tracking partition numbers, create alerts when this metric approaches or exceeds recommended limits 
+2. LeaderCount: Useful for identifying imbalances in partition distribution, create alerts for unexpected spikes or disproportionate leader counts. 
+3. UnderMinIsrPartitionCount: High values for this metric can be related to excessive partitioning and underreplicated partitions, create alerts for non-zero values or increasing trends.
+4. UnderReplicatedPartitions: Can be symptomatic of overloaded brokers due to high partition counts, create alerts for non-zero values or sudden increases. 
+5. ProduceTotalTimeMsMean: Increasing values of this metric may indicate strain from high partition counts, create alerts for significant increases above baseline. 
+6. NetworkRxPackets/NetworkRxErrors: High partition counts can lead to increased network traffic, create lerts for unusual spikes in either metric. 
+7. TrustedAdvisor: Check TA regulalry. MSK Monitoring guide",,,"
+Carefully plan the number of brokers based on MSK best practices. Consider upgrading to larger broker types if needed.
+Keep partition numbers proportional to actual workload requirements. Aim for an even distribution of partitions across brokers.
+Use CloudWatch metrics to track partition counts. Set up alerts for approaching partition limits. Periodically reassess and rebalance partition distribution.
+Use kafka-reassign-partitions.sh for manual rebalancing. Limit reassignments to 10-20 partitions per operation for safety.
+Remove unused topics to free up resources. Consolidate topics with low throughput. Consider using compacted topics where appropriate.
+Explore MSK Serverless for automatic partition management. Use MSK tiered storage to offload older data.
+Add more brokers to spread partition load. 
+Expand cluster size in a balanced manner across Availability Zones.
+Set appropriate retention periods for topics. Use log compaction where applicable to manage data growth.
+Design consumer groups efficiently to avoid unnecessary partitions. Balance consumer group counts with partition counts.
+",,
+,High Offline Partition Count - Leads to disruption in streaming operations.,Inability to read/write affected partitions. Potential data access failures. Increased latency in message processing. Resource contention on remaining active partitions. Potential application timeouts. Reduced overall cluster throughput. Risk of complete service outages.,8,"Insufficient disk space for partition data. EBS volume performance issues. DNS resolution failures. Improper replication factor settings. Incorrect min.insync.replicas configuration. Excessive partition counts overwhelming brokers. Underlying EC2 instance performance(CPU, Memory, I/O). Network disruptions in VPC or cross-AZ. Replica lag leading to out-of-sync partitions. ",9,"CloudWatch Metrics: 
+1. OfflinePartitionsCount: Tracks total number of offline partitions cluster-wide, critical metric requiring immediate attention if >0. Set Warning alarm when first offline partition detected. Set Critical alarm when count exceeds >1. Set Emergency alarm for sustained offline partition states. 
+2. GlobalTopicCount/GlobalPartitionCount: These metrics represents total topic and partition counts cluster wide, steady increase or spike in these metrics needs attention.
+3. KafkaDataLogsDiskUsed: These metrics represents storage usage by Kafka brokers, low free space blocks partition growth.
+4. NetworkTxPackets/NetworkRxPackets: Indicates Network transmission health and connectivity issues which can lead to offline partition.
+5. CpuIoWait/CpuSystem/CpuUser/MemoryFree: CPU/Memory usage metrics, indicates resource preassure which can lead to offline partition. 
+6. VolumeQueueLength: EBS volume queue depth which can cause I/O latency and I/O preassure leading to offline parition.
+7. UnderReplicatedPartitions: Indicates number of under replicated paritions in a broker, configure alarm if the value is > 0 continuesly or there is sustained spike in this metric.",,,"Keep partitions within recommended limits per broker and plan partition counts before topic creation. 
+Maintain even partition distribution across brokers.
+Implement Cruise Control for automated balancing.
+Use kafka-reassign-partitions.sh carefully (max 10 at once).
+Remove unused topics regularly and set alarms for Storage, CPU, Memory and Network metrics in MSK.
+Maintain balanced broker distribution across AZs.
+Use automatic stotrage scaling for standard broker clusters.
+Explore MSK Serverless for automatic partition management. Use MSK tiered storage to offload older data or use Express brokers for automatic storage management. 
+Scale MSK cluster/or storage to add more resources to accomodate offline paritions.",,
+,High Under Replicated Partitions - Leads to data loss if primary parition fails.,Reduced redundancy for critical partitions leading to potential data loss. Consumer lag due to partition unavailability leading to potential application-level timeouts.  Potential violations of data redundancy requirements. Overload on leader partitions leads to hotspots on certain brokers. Reduced resilience to broker failures. ,8,"High broker resource(CPU, Memory, I/O, Netowork) usage. Low broker free storage space.  Under provisioned MSK clusters. Large message size and high producer messge throughput. Misconfigured replication factor and minimum ISR values. Unhealthy brokers and uneven partition distribution strategies. 
+Restrictive ACLs that don't grant topic access to brokers.",9,"CloudWatch Metrics: 
+1. UnderReplicatedPartitions: Indicates number of under replicated paritions in a broker, configure alarm if the value is > 0 continuesly or there is sustained spike in this metric.
+2. OfflinePartitionsCount: Tracks total number of offline partitions cluster-wide, critical metric requiring immediate attention if >0. 
+3. UnderMinIsrPartitionCount:  Indicates number of partitions where the in-sync replica (ISR) count is below the minimum required, create alerts for non-zero values or increasing trends.
+4. NetworkRxPackets/NetworkRxErrors: High partition counts can lead to increased network traffic, create lerts for unusual spikes in either metric. 
+5. CpuIoWait/CpuSystem/CpuUser/MemoryFree: CPU/Memory usage metrics, indicates resource preassure which can lead to under replicated partitions. ",,,"Set up alerts for UnderReplicatedPartitions metric. 
+Monitor related metrics like OfflinePartitionsCount.
+Set appropriate replication factor (3 or higher).
+Regularly reassess partition distribution or implement Cruise Control for automated balancing.
+Check whether restrive ACLs are blocking topic access to brokers. 
+Use automatic stotrage scaling for standard broker clusters.
+Scale cluster to have more resources(CPU, Memory, I/O) to meet high throughput demands.
+Explore MSK Serverless for automatic partition management. Use MSK tiered storage to offload older data or use Express brokers for automatic storage management. 
+Scale MSK cluster/or storage to add more resources to accomodate offline paritions.",,
+,Spike in Active Controller Count - Lead to cluster unavailability,"Difficulty in maintaining consistent cluster state.
+Potential for split-brain scenarios.
+Disrupted partition leadership assignments.
+Cluster unavailabilty and downtime.
+Inconsistent response times or client connection errors.
+Potential data loss if not addresses in time.",8,"High network latency and instability between brokers. 
+Resource(CPU, Memory, I/O)saturation in controller nodes.
+Memory pressure in controller nodes leading to frequent GC pauses.
+Improper ZooKeeper session timeout settings and misconfigured broker settings.
+Incorrect replication factor for metadata topics.
+Uneven load distribution causing broker instability.
+Frequent broker failures or restarts and storage issues on broker nodes.",7,"CloudWatch Metrics: 
+1. ActiveControllerCount: Indicates number of brokers currently acting as the cluster controller, a value other than 1, either 0 or greater than 1, signifies a problem.
+2. OfflinePartitionsCount: Tracks total number of offline partitions cluster-wide, critical metric requiring immediate attention if >0, high OfflinePartitionsCount can be a symptom of an issue leading to frequent active controller fluctuations.
+3. ZooKeeperSessionState: Indicates broker's ZooKeeper connection status, set alarm if there is frequent spike in this metric. 
+4. ZooKeeperRequestLatencyMsMean: Indicates mean latency in milliseconds for Apache ZooKeeper requests from broker, high latency can lead to conrtoller instability. 
+5. KafkaDataLogsDiskUsed: indicates percentage of disk space used for data logs, high storage usage leads to low free storage and broker instability.",,,"Set alarm for ActiveControllerCount and related metrics like OfflinePartitionsCount, ZooKeeperSessionState, KafkaDataLogsDiskUsed, NetworkRxPackets and NetworkRxErrors.
+Tune ZooKeeper session timeout settings and monitor network throughout metrics for high usage.
+Scale MSK cluster/or storage to add more resources, use automatic stotrage scaling for standard broker clusters.
+Consider MSK Serverless for automatic management of controller elections and cluster scaling.
+Consider cross-region replication for critical workloads to address multiple active controller failures.",,
+,High CPU Usage - Leads to performance issues and timeouts.,"Increased latency in message processing.
+Slower response times for client operations.
+Potential message backlogs. 
+Risk of broker failures or crashes.
+Increased likelihood of partition reassignments.
+Potential violations of performance guarantees.",7,"Excessive incoming or outgoing data streams.
+Large number of concurrent producers or consumers.
+Undersized broker instances and unbalanced workload across brokers.
+Too many partitions per broker and uneven partition distribution.
+Frequent partition reassignments.
+Improper batch sizes or compression settings",6,"CloudWatch Metrics:
+1. CpuSystem/CpuUser: Indicates percentage of CPU in kernel space and user space, combined usage of these metrics above 60% is a concern. 
+2. CpuIoWait: Indicates percentage of CPU idle time during a pending disk operation, a sustained high value indicates I/O bottleneck.
+3. MemoryFree: Indicates size in bytes of memory that is free and available for the broker, low memory memory can lead to increased CPU load due to swapping.
+4. HeapMemoryAfterGC: Indicates percentage of total heap memory in use after garbage collection, high value of this metric can indirectly cause high CPU usage, set alarm if the value crosses 60%.
+5. ActiveControllerCount: Indicates number of brokers currently acting as the cluster controller, spikes may correlate with CPU spikes.",,,"Maintain the CPU utilization for your brokers (defined as CPU User + CPU System) under 60%, set alarm if usage cross this threshold.
+Monitor HeapMemoryAfterGC metric and set alarm for > 60% threshold.
+Adjust request batch sizes at producers and consumers.
+Maintain appropriate number of brokers and proper partition distribution.
+Scale cluster to have more resources(CPU, Memory, I/O) to meet high throughput demands.
+Regularly reassess partition distribution or implement Cruise Control for automated balancing.
+Consider using Express brokers for improved throughput capacity.
+Consider using MSK Serverless for automatic resource management.
+",,
+,High Storage Uage - Leads to cluster unavailability ,"Cluster unavailable for reads & writes.
+Producers unable to write new messages.
+Upstream ingestion pipeline failures.
+Potential data loss if producers don't implement proper retry mechanisms.
+Risk of broker failures due to storage exhaustion.
+Difficulties in adding new topics or partitions. 
+Challenges in maintaining proper partition balance.",9,"Overly long data retention period settings.
+Under provisioned storage capacity.
+Large message sizes and large rate of ingestion.
+Unbalanced replica distribution across brokers.
+High replication factors than required.
+Inefficient consumer offset management and failed consumers causing message retention.
+Ineffective log compaction settings and failure of log compaction processes.
+Failure to housekeep unnecessary topics.",8,"CloudWatch Metrics:
+1. KafkaDataLogsDiskUsed: Indicates percentage of disk space used for data logs, a value > 85% is concerning.
+2. KafkaAppLogsDiskUsed: Indicates percentage of disk space used for application logs, very high value can be concern though the usage should be low.
+3. PartitionCount: Primary metric for tracking partition numbers, create alerts when this metric approaches or exceeds recommended limits",,,"Create alarm for KafkaDataLogsDiskUsed crossing 85% and perform storage scaling or topic level house keeping as per best practice.
+Reduce the message retention period or log size. 
+Delete unused topics and reduce excessive replica count.
+Establish uneven distribution of partittions accross brokers.
+Regularly reassess partition distribution or implement Cruise Control for automated balancing.
+Use storage tiering for standard brokers for cost effective long term retenstion period.
+Scale storage to add more capacity or use automatic stotrage scaling for standard broker clusters.
+Consider using Express brokers for automatic storage management.
+Consider using MSK Serverless for automatic resource management.",,
+S3,,,,,,,,,,,
+,5xxErrors,"Makes objects and data temporarily inaccessible.
+Disrupts applications and services dependent on S3 storage.
+Potential data processing delays.
+Causes failed operations that need to be retried.
+Creates additional latency in applications.",8,"The error code 500 Internal Error indicates that Amazon S3 can't handle the request at that time. 
+The error code 503 Slow Down typically indicates that the number of requests to your S3 bucket is high.
+Happens when request rates are too high for a bucket. 
+Typically occurs when exceeding service limits (3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per partitioned prefix).",6,"CloudWatch Metrics:
+1. 5xxErrors: Tracks overall server-side error responses. Monitors frequency of internal server errors. Can be used to calculate error rates.
+2. TotalRequestLatency: Indicates elapsed per-request time from the first byte received to the last byte sent to an Object Lambda Access Point. This metric includes the time taken to receive the request body and send the response body, which is not included in FirstByteLatency.
+3. FirstByteLatency: Indicates the per-request time from the complete request being received by an Amazon S3 bucket to when the response starts to be returned.",,,"For the application that makes the requests, use a retry mechanism.
+Monitor the number of 5xx error responses.
+Configure your application to gradually increase request rates.
+Distribute objects across multiple prefixes.
+Refer the AWS documentation for troubleshooting steps.",,
+,,,,,,,,,,,
+,ReplicationLatency,,,,,,,,,,
+,TotalRequestLatency,,,,,,,,,,

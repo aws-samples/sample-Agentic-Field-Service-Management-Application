@@ -1,0 +1,239 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - DynamoDB Tables'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'prod'
+    Description: Deployment environment
+
+Resources:
+  # DynamoDB Tables
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Customers-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Jobs-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  TechniciansTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Technicians-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  InvoicesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Invoices-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  MetricsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Metrics-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  DocumentationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Documentation-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: model
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  PartsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-Parts-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: partNumber
+          AttributeType: S
+      KeySchema:
+        - AttributeName: partNumber
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-WebSocketConnections-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+  SimulatorConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'FSM-SimulatorConfig-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+Outputs:
+  StackName:
+    Description: Name of this stack
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+      
+  CustomersTableName:
+    Description: Name of the Customers DynamoDB table
+    Value: !Ref CustomersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomersTableName'
+
+  JobsTableName:
+    Description: Name of the Jobs DynamoDB table
+    Value: !Ref JobsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-JobsTableName'
+
+  TechniciansTableName:
+    Description: Name of the Technicians DynamoDB table
+    Value: !Ref TechniciansTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TechniciansTableName'
+
+  InvoicesTableName:
+    Description: Name of the Invoices DynamoDB table
+    Value: !Ref InvoicesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-InvoicesTableName'
+
+  MetricsTableName:
+    Description: Name of the Metrics DynamoDB table
+    Value: !Ref MetricsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsTableName'
+
+  MetricsTableStreamArn:
+    Description: ARN of the DynamoDB stream for metrics table
+    Value: !GetAtt MetricsTable.StreamArn
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsTableStreamArn'
+
+  DocumentationTableName:
+    Description: Name of the Documentation DynamoDB table
+    Value: !Ref DocumentationTable
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentationTableName'
+
+  PartsTableName:
+    Description: Name of the Parts DynamoDB table
+    Value: !Ref PartsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsTableName'
+
+  ConnectionsTableName:
+    Description: Name of the WebSocket Connections DynamoDB table
+    Value: !Ref ConnectionsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ConnectionsTableName'
+
+  SimulatorConfigTableName:
+    Description: Name of the WebSocket Connections DynamoDB table
+    Value: !Ref SimulatorConfigTable
+    Export:
+      Name: !Sub '${AWS::StackName}-SimulatorConfigTableName'

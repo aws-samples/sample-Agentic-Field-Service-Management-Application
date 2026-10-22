@@ -1,0 +1,86 @@
+# JavaScript dependencies are not used by the Python agent images
+node_modules/
+scripts/node_modules/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Python cache
+__pycache__/
+__pycache__*
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments and local environment settings
+.venv/
+.env
+.env.*
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage*
+htmlcov/
+.tox/
+*.cover
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Development
+*.log
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Project specific
+tests/
+
+# Bedrock AgentCore and local image-build state
+.bedrock_agentcore.yaml
+.dockerignore
+scripts/.agent-images.env
+scripts/.rebuild*.json
+scripts/.rebuild.log
+scripts/.latest-images.txt
+scripts/.billing-image.txt
+scripts/.parts-image-uri.txt
+scripts/.runtimes.json
+agentcore_deployment_results.json
+agentcore_gateway_config.json
+agents/agentcore_gateway_config.json
+scripts/.agentcore-deployment-results.json
+scripts/.agent-runtime-arns.json
+scripts/.venv-agentcore-deploy/
+
+# Keep wheelhouse for offline installations
+# wheelhouse/

@@ -1,0 +1,1541 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - API Gateway'
+
+Parameters:
+  ApiStageName:
+    Type: String
+    Default: 'prod'
+    Description: API Gateway stage name
+  
+  Environment:
+    Type: String
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'prod'
+    Description: Deployment environment
+  
+  LambdaFunctionsStackName:
+    Type: String
+    Description: Name of the Lambda functions stack
+    
+  CloudFrontUrl:
+    Type: String
+    Description: CloudFront distribution domain name (no scheme) used as the single allowed CORS origin
+    AllowedPattern: '^[A-Za-z0-9.-]+$'
+    ConstraintDescription: Must be a bare domain name such as d1234abcd.cloudfront.net
+
+
+  UserPoolArn:
+    Type: String
+    Description: ARN of the Cognito user pool whose ID tokens the REST authorizer accepts
+    AllowedPattern: '^arn:aws[a-z-]*:cognito-idp:[a-z0-9-]+:[0-9]{12}:userpool/[A-Za-z0-9_-]+$'
+
+  DeploymentNonce:
+    Type: String
+    Description: Release-unique value; changing it forces a new REST API deployment so method auth changes reach the stage
+
+  ApiThrottleRateLimit:
+    Type: Number
+    Default: 50
+    Description: Steady-state requests per second allowed per stage (replaces the API key usage plan)
+
+  ApiThrottleBurstLimit:
+    Type: Number
+    Default: 100
+    Description: Burst request limit per stage
+
+Resources:
+  # REST API Gateway
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'FSM-API-${Environment}'
+      Description: Field Service Management API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # Cognito User Pools authorizer for every non-OPTIONS REST method.
+  # Expects the Cognito ID token in the Authorization header.
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub 'FSM-Cognito-${Environment}'
+      RestApiId: !Ref RestApi
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - !Ref UserPoolArn
+
+  # API Resources
+  CustomersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'customers'
+
+  CustomerByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref CustomersResource
+      PathPart: '{id}'
+
+  JobsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'jobs'
+
+  JobByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref JobsResource
+      PathPart: '{id}'
+
+  JobAssignResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref JobByIdResource
+      PathPart: 'assign'
+
+  JobUnassignResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref JobByIdResource
+      PathPart: 'unassign'
+
+  JobCompleteResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref JobByIdResource
+      PathPart: 'complete'
+
+  TechniciansResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'technicians'
+
+  TechnicianByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref TechniciansResource
+      PathPart: '{id}'
+
+  InvoicesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'invoices'
+
+  InvoiceByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref InvoicesResource
+      PathPart: '{id}'
+
+  MetricsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'metrics'
+  
+  MetricsByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref MetricsResource
+      PathPart: '{id}'
+
+
+  PartsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'parts'
+      
+  PartsReorderResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PartsResource
+      PathPart: 'reorder'
+  
+  PartsByHvacResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PartsResource
+      PathPart: 'hvac-model'
+  
+  PartsByHvacIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PartsByHvacResource
+      PathPart: '{id}'
+  
+  PartsInventoryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PartsResource
+      PathPart: 'inventory'
+
+  SimulatorResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: simulator
+  
+  # Gateway Responses for CORS
+  GatewayResponseDefault4XX:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  GatewayResponseDefault5XX:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+  
+ 
+  # Agents API Resource
+  AgentsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: 'agents'
+
+  # Agent Type Resource
+  AgentTypeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref AgentsResource
+      PathPart: '{agent}'
+
+  # Methods for Customers
+  GetCustomersMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref CustomersResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomerFunctionArn}/invocations
+          - CustomerFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-CustomerFunctionArn"
+
+  GetCustomerByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref CustomerByIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomerByIdFunctionArn}/invocations
+          - CustomerByIdFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-CustomerByIdFunctionArn"
+
+  # Methods for Jobs
+  GetJobsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobsResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${JobsFunctionArn}/invocations
+          - JobsFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-JobsFunctionArn"
+
+  GetJobByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobByIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${JobByIdFunctionArn}/invocations
+          - JobByIdFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-JobByIdFunctionArn"
+
+  AssignTechnicianMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobAssignResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AssignTechnicianFunctionArn}/invocations
+          - AssignTechnicianFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-AssignTechnicianFunctionArn"
+
+  UnassignTechnicianMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobUnassignResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UnassignTechnicianFunctionArn}/invocations
+          - UnassignTechnicianFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-UnassignTechnicianFunctionArn"
+
+  JobUnassignOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobUnassignResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  CompleteJobMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobCompleteResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CompleteJobFunctionArn}/invocations
+          - CompleteJobFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-CompleteJobFunctionArn"
+
+  # Methods for Technicians
+  GetTechniciansMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref TechniciansResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TechniciansFunctionArn}/invocations
+          - TechniciansFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-TechniciansFunctionArn"
+
+# Methods for Metrics
+  GetMetricsByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MetricsByIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MetricsFunctionArn}/invocations
+          - MetricsFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-MetricsFunctionArn"
+  
+  # Enable CORS for all resources
+  CustomersOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref CustomersResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  CustomerByIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref CustomerByIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  JobsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  JobByIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobByIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  JobAssignOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobAssignResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  JobCompleteOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref JobCompleteResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  TechniciansOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref TechniciansResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  TechnicianByIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref TechnicianByIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+  
+  # Methods for Invoices
+  GetInvoicesMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoicesResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${InvoicesFunctionArn}/invocations
+          - InvoicesFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-InvoicesFunctionArn"
+
+  GetInvoiceByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoiceByIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${InvoiceByIdFunctionArn}/invocations
+          - InvoiceByIdFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-InvoiceByIdFunctionArn"         
+  
+  
+  InvoicesOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoicesResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  InvoiceByIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoiceByIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  MetricsByIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MetricsByIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+
+  PartsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  
+  # Methods for Parts Reorder
+  
+# Methods for Parts
+  GetPartsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsFunctionArn}/invocations
+          - PartsFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+            
+  GetPartsByHvacMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsByHvacResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsByHvacFunctionArn}/invocations
+          - PartsByHvacFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsByHvacFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+
+  PartsByHvacOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsByHvacResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+ 
+  GetPartsByHvacIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsByHvacIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsByHvacFunctionArn}/invocations
+          - PartsByHvacFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsByHvacFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+
+  PartsByHvacIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsByHvacIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+     
+  # Methods for Parts Reorder
+  GetPartsReorderMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsReorderResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsReorderGetFunctionArn}/invocations
+          - PartsReorderGetFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsReorderGetFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+            
+  PartsReorderPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsReorderResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsReorderFunctionArn}/invocations
+          - PartsReorderFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsReorderFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+  
+  PartsInventoryrPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsInventoryResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PartsInventoryFunctionArn}/invocations
+          - PartsInventoryFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-PartsUpdateInventoryFunctionArn"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+
+  PartsInventoryOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsInventoryResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+ 
+
+  PartsReorderOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PartsReorderResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+ 
+  # POST Method for Agent Type
+  AgentTypePostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AgentTypeResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AgentsApiHandlerFunctionArn}/invocations
+          - AgentsApiHandlerFunctionArn: !ImportValue 
+              Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiHandlerFunctionArn"
+
+  # OPTIONS Method for Agent Type
+  AgentTypeOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AgentTypeResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AgentsApiOptionsHandlerFunctionArn}/invocations"
+            - AgentsApiOptionsHandlerFunctionArn:
+                Fn::ImportValue:
+                  Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiOptionsHandlerFunctionArn"
+
+  # Simulator methods
+  SimulatorStatusMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref SimulatorResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SimulatorControlFunctionArn}/invocations
+          - SimulatorControlFunctionArn: !ImportValue
+              Fn::Sub: "${LambdaFunctionsStackName}-SimulatorControlFunctionArn"
+        RequestTemplates:
+          application/json: '{"action": "status"}'
+
+
+  SimulatorStartMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref SimulatorResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SimulatorControlFunctionArn}/invocations
+          - SimulatorControlFunctionArn: !ImportValue
+              Fn::Sub: "${LambdaFunctionsStackName}-SimulatorControlFunctionArn"
+        RequestTemplates:
+          application/json: '{"action": "start"}'
+
+
+  SimulatorStopMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref SimulatorResource
+      HttpMethod: DELETE
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SimulatorControlFunctionArn}/invocations
+          - SimulatorControlFunctionArn: !ImportValue
+              Fn::Sub: "${LambdaFunctionsStackName}-SimulatorControlFunctionArn"
+        RequestTemplates:
+          application/json: '{"action": "stop"}'
+
+  # Enable CORS for all simulator resources
+  SimulatorOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref SimulatorResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'https://${CloudFrontUrl}'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+
+
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetCustomersMethod
+      - GetCustomerByIdMethod
+      - GetJobsMethod
+      - GetJobByIdMethod
+      - AssignTechnicianMethod
+      - UnassignTechnicianMethod
+      - JobUnassignOptionsMethod
+      - CompleteJobMethod
+      - GetTechniciansMethod
+      - CustomersOptionsMethod
+      - CustomerByIdOptionsMethod
+      - JobsOptionsMethod
+      - JobByIdOptionsMethod
+      - JobAssignOptionsMethod
+      - JobCompleteOptionsMethod
+      - TechniciansOptionsMethod
+      - TechnicianByIdOptionsMethod
+      - GetInvoicesMethod
+      - GetInvoiceByIdMethod
+      - InvoicesOptionsMethod
+      - InvoiceByIdOptionsMethod
+      - GetMetricsByIdMethod
+      - MetricsByIdOptionsMethod
+      - GetPartsMethod
+      - GetPartsByHvacMethod
+      - PartsByHvacOptionsMethod
+      - GetPartsByHvacIdMethod
+      - PartsByHvacIdOptionsMethod
+      - GetPartsReorderMethod
+      - PartsReorderPostMethod
+      - PartsOptionsMethod
+      - PartsReorderOptionsMethod
+      - PartsInventoryrPostMethod
+      - PartsInventoryOptionsMethod
+      - AgentTypePostMethod
+      - AgentTypeOptionsMethod
+      - SimulatorStatusMethod
+      - SimulatorStartMethod
+      - SimulatorStopMethod
+      - SimulatorOptionsMethod
+      - WebSocketConnectRoute
+      - WebSocketDisconnectRoute
+      - WebSocketDefaultRoute
+      - CognitoAuthorizer
+      
+    Properties:
+      RestApiId: !Ref RestApi
+      # A Deployment is only recreated when its properties change; tie it to the release
+      # so authorizer and method changes always reach the stage.
+      Description: !Sub 'FSM API release ${DeploymentNonce}'
+      StageName: !Ref ApiStageName
+      StageDescription:
+        MethodSettings:
+          - ResourcePath: '/*'
+            HttpMethod: '*'
+            ThrottlingRateLimit: !Ref ApiThrottleRateLimit
+            ThrottlingBurstLimit: !Ref ApiThrottleBurstLimit
+
+  # WebSocket API for real-time updates
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub 'FSM-WebSocketAPI-${Environment}'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: !Ref ApiStageName
+      AutoDeploy: true
+
+  # $connect is the only WebSocket route API Gateway lets you authorize; the
+  # authorizer verifies the Cognito ID token passed as ?token=.
+  WebSocketAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref WebSocketApi
+      Name: !Sub 'FSM-WebSocketCognito-${Environment}'
+      AuthorizerType: REQUEST
+      IdentitySource:
+        - route.request.querystring.token
+      AuthorizerUri: !Sub
+        - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations
+        - AuthorizerFunctionArn: !ImportValue
+            Fn::Sub: "${LambdaFunctionsStackName}-WebSocketAuthorizerFunctionArn"
+
+  WebSocketAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue
+        Fn::Sub: "${LambdaFunctionsStackName}-WebSocketAuthorizerFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/authorizers/${WebSocketAuthorizer}'
+
+  WebSocketConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref WebSocketAuthorizer
+      OperationName: ConnectRoute
+      Target: !Sub 'integrations/${WebSocketConnectIntegration}'
+
+  WebSocketDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectRoute
+      Target: !Sub 'integrations/${WebSocketDisconnectIntegration}'
+
+  WebSocketDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      OperationName: DefaultRoute
+      Target: !Sub 'integrations/${WebSocketMessageIntegration}'
+
+  WebSocketConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 
+        - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketConnectFunctionArn}/invocations
+        - WebSocketConnectFunctionArn: !ImportValue 
+            Fn::Sub: "${LambdaFunctionsStackName}-WebSocketConnectFunctionArn"
+
+  WebSocketDisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 
+        - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketDisconnectFunctionArn}/invocations
+        - WebSocketDisconnectFunctionArn: !ImportValue 
+            Fn::Sub: "${LambdaFunctionsStackName}-WebSocketDisconnectFunctionArn"
+
+  WebSocketMessageIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 
+        - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketMessageFunctionArn}/invocations
+        - WebSocketMessageFunctionArn: !ImportValue 
+            Fn::Sub: "${LambdaFunctionsStackName}-WebSocketMessageFunctionArn"
+
+  # Lambda permissions
+  CustomerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-CustomerFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  CustomerByIdFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-CustomerByIdFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  JobsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-JobsFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  JobByIdFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-JobByIdFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  MetricsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-MetricsFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  InvoicesFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-InvoicesFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  InvoiceByIdFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-InvoiceByIdFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+
+  AssignTechnicianFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-AssignTechnicianFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  UnassignTechnicianFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-UnassignTechnicianFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  CompleteJobFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-CompleteJobFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  TechniciansFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-TechniciansFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+    # Lambda Permissions for Parts Functions
+  PartsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  PartsByHvacFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsByHvacFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  PartsByHvacIdFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsByHvacFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+  
+  PartsReorderFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsReorderFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  PartsInventoryFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsUpdateInventoryFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  PartsReorderGetFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-PartsReorderGetFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  AgentsApiHandlerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue
+        Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiHandlerFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/POST/agents/*'
+
+  AgentsApiOptionsHandlerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue
+        Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiOptionsHandlerFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/OPTIONS/agents/*'
+
+  WebSocketConnectFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-WebSocketConnectFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${ApiStageName}/$connect'
+
+  WebSocketDisconnectFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-WebSocketDisconnectFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${ApiStageName}/$disconnect'
+
+  WebSocketMessageFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-WebSocketMessageFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${ApiStageName}/$default'
+  
+  # Permission for API Gateway to invoke Simulator
+  SimulatorControlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-SimulatorControlFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*
+
+Outputs:
+  StackName:
+    Description: Name of this stack
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+      
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  ApiId:
+    Description: ID of the API Gateway
+    Value: !Ref RestApi
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiId'
+
+  WebSocketEndpoint:
+    Description: WebSocket API endpoint URL
+    Value: !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketEndpoint'
+
+  CustomerFunctionArn:
+    Description: ARN of the Customer Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-CustomerFunctionArn"
+
+  CustomerByIdFunctionArn:
+    Description: ARN of the CustomerById Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-CustomerByIdFunctionArn"
+
+  JobsFunctionArn:
+    Description: ARN of the Jobs Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-JobsFunctionArn"
+
+  JobByIdFunctionArn:
+    Description: ARN of the JobById Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-JobByIdFunctionArn"
+
+  AssignTechnicianFunctionArn:
+    Description: ARN of the AssignTechnician Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-AssignTechnicianFunctionArn"
+
+  CompleteJobFunctionArn:
+    Description: ARN of the CompleteJob Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-CompleteJobFunctionArn"
+
+  TechniciansFunctionArn:
+    Description: ARN of the Technicians Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-TechniciansFunctionArn"
+
+  MetricsFunctionArn:
+    Description: ARN of the Metrics Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-MetricsFunctionArn"
+
+  WebSocketConnectFunctionArn:
+    Description: ARN of the WebSocketConnect Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-WebSocketConnectFunctionArn"
+
+  WebSocketDisconnectFunctionArn:
+    Description: ARN of the WebSocketDisconnect Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-WebSocketDisconnectFunctionArn"
+
+  WebSocketMessageFunctionArn:
+    Description: ARN of the WebSocketMessage Lambda function
+    Value: !ImportValue 
+      Fn::Sub: "${LambdaFunctionsStackName}-WebSocketMessageFunctionArn"
+
+  MetricsResourceId:
+    Description: Resource ID for Metrics Lambda function
+    Value: !Ref MetricsResource
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsResourceId'
+
+ 
+
+

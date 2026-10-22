@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>React Error #31 Debug</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    .error {
+      color: red;
+      padding: 10px;
+      border: 1px solid red;
+      background-color: #ffeeee;
+      margin: 10px 0;
+    }
+    .success {
+      color: green;
+      padding: 10px;
+      border: 1px solid green;
+      background-color: #eeffee;
+      margin: 10px 0;
+    }
+    .code {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px;
+      margin: 5px;
+      background-color: #0073bb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    // This page demonstrates the React Error #31 that was occurring in the AgentsDashboard.js file
+    
+    // First, let's create a component that will trigger the error
+    const ErrorComponent = () => {
+      // Create an object with filteringText and onChange properties
+      const filterProps = {
+        filteringText: '',
+        onChange: (value) => console.log('Filter changed:', value)
+      };
+      
+      // This will cause React Error #31 because we're trying to render an object
+      return (
+        <div>
+          <h2>This will cause an error:</h2>
+          {filterProps}
+        </div>
+      );
+    };
+    
+    // Now let's create a component that fixes the error
+    const FixedComponent = () => {
+      // Create an object with filteringText and onChange properties
+      const filterProps = {
+        filteringText: '',
+        onChange: (value) => console.log('Filter changed:', value)
+      };
+      
+      // This is the correct way to use the object properties
+      return (
+        <div>
+          <h2>This is the correct way:</h2>
+          <input
+            type="text"
+            value={filterProps.filteringText}
+            onChange={(e) => filterProps.onChange(e.target.value)}
+            placeholder="Filter..."
+          />
+        </div>
+      );
+    };
+    
+    // Main App
+    const App = () => {
+      const [showError, setShowError] = useState(false);
+      const [showFixed, setShowFixed] = useState(false);
+      const [errorMessage, setErrorMessage] = useState(null);
+      
+      // Error boundary to catch the React Error #31
+      class ErrorBoundary extends React.Component {
+        constructor(props) {
+          super(props);
+          this.state = { hasError: false, error: null };
+        }
+        
+        static getDerivedStateFromError(error) {
+          return { hasError: true };
+        }
+        
+        componentDidCatch(error, errorInfo) {
+          console.error('React Error:', error);
+          setErrorMessage(error.toString());
+          this.setState({ error });
+        }
+        
+        render() {
+          if (this.state.hasError) {
+            return (
+              <div className="error">
+                <h3>React Error Caught:</h3>
+                <p>{this.state.error && this.state.error.toString()}</p>
+                <p>This is similar to the error that was occurring in the AgentsDashboard.js file.</p>
+              </div>
+            );
+          }
+          
+          return this.props.children;
+        }
+      }
+      
+      return (
+        <div className="container">
+          <div className="header">
+            <h1>React Error #31 Debug</h1>
+            <p>This page demonstrates the error that was occurring in the AgentsDashboard.js file.</p>
+            <p>React version: {React.version}</p>
+          </div>
+          
+          <div className="code">
+            <h3>The error was:</h3>
+            <code>
+              Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7BfilteringText%2C%20onChange%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+            </code>
+          </div>
+          
+          <div className="code">
+            <h3>The full error message is:</h3>
+            <code>
+              Objects are not valid as a React child (found: object with keys {filteringText, onChange}). If you meant to render a collection of children, use an array instead.
+            </code>
+          </div>
+          
+          <div>
+            <button onClick={() => setShowError(!showError)}>
+              {showError ? 'Hide Error Example' : 'Show Error Example'}
+            </button>
+            <button onClick={() => setShowFixed(!showFixed)}>
+              {showFixed ? 'Hide Fixed Example' : 'Show Fixed Example'}
+            </button>
+          </div>
+          
+          {showError && (
+            <div>
+              <h2>Error Example:</h2>
+              <ErrorBoundary>
+                <ErrorComponent />
+              </ErrorBoundary>
+            </div>
+          )}
+          
+          {showFixed && (
+            <div>
+              <h2>Fixed Example:</h2>
+              <FixedComponent />
+              <div className="success">
+                <p>This component renders correctly because it uses the object properties correctly.</p>
+              </div>
+            </div>
+          )}
+          
+          <div className="code">
+            <h3>How we fixed it in AgentsDashboard.js:</h3>
+            <code>
+{`// Original code with error:
+const WorkflowTable = ({ workflows, onViewWorkflow }) => {
+  const { items, collectionProps, filterProps, paginationProps } = useCollection(
+    workflows,
+    {
+      filtering: {
+        empty: 'No workflows found',
+        noMatch: 'No workflows match the filters',
+      },
+      pagination: { pageSize: 10 },
+      sorting: {},
+    }
+  );
+
+  return (
+    <Table
+      {...collectionProps}
+      header={<Header variant="h2">Agent Workflows</Header>}
+      columnDefinitions={[...]}
+      items={items}
+      pagination={paginationProps}
+      filter={filterProps}  // This was causing the error
+      selectionType="single"
+    />
+  );
+};
+
+// Fixed code:
+const WorkflowTable = ({ workflows, onViewWorkflow }) => {
+  return (
+    <Table
+      header={<Header variant="h2">Agent Workflows</Header>}
+      columnDefinitions={[...]}
+      items={workflows}
+      trackBy="id"
+      selectionType="single"
+    />
+  );
+};`}
+            </code>
+          </div>
+        </div>
+      );
+    };
+    
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - Data Population'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'prod'
+    Description: Deployment environment
+    
+  LambdaFunctionsStackName:
+    Type: String
+    Description: Name of the Lambda functions stack
+
+Resources:
+  # Custom resource to populate DynamoDB tables
+  DataPopulationCustomResource:
+    Type: Custom::DataPopulation
+    Properties:
+      ServiceToken: !ImportValue 
+        Fn::Sub: "${LambdaFunctionsStackName}-DataPopulationFunctionArn"
+      Environment: !Ref Environment
+      Timestamp: !Ref AWS::AccountId # Using AccountId as a placeholder since TimeStamp doesn't exist
+
+Outputs:
+  DataPopulationStatus:
+    Description: Status of data population
+    Value: 'Completed'

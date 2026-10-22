@@ -1,0 +1,940 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Field Service Management (FSM) Application - Lambda Functions'
+
+Parameters:
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda function code
+  
+  Environment:
+    Type: String
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'prod'
+    Description: Deployment environment
+  
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID
+  
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool Client ID
+    
+  CloudFrontUrl:
+    Type: String
+    Description: The exact CloudFront origin (https://...) allowed by CORS. Wildcards are rejected.
+    AllowedPattern: '^https://[A-Za-z0-9.-]+$'
+    ConstraintDescription: Must be a single https:// origin without path or trailing slash
+
+  LambdaCodePrefix:
+    Type: String
+    Default: lambda
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*$'
+    Description: Versioned S3 key prefix containing this release's Lambda packages
+
+  AgentRuntimeArns:
+    Type: String
+    Description: JSON object mapping the eight FSM semantic agent keys to READY AgentCore runtime ARNs
+    MinLength: 2
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # IAM: one narrowly scoped execution role per workload. No role grants access
+  # to resources outside this account, region, and environment.
+  # ---------------------------------------------------------------------------
+
+  # Role for the REST data handlers (customers, jobs, technicians, invoices,
+  # metrics, parts, simulator control) and the data-population custom resource.
+  ApiDataAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'FSM ${Environment} REST data handlers - environment-scoped DynamoDB access only'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: FsmTableAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadWriteFsmTables
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Customers-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Jobs-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Technicians-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Invoices-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Metrics-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Metrics-${Environment}/index/*'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Parts-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Documentation-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-SimulatorConfig-${Environment}'
+
+  # Role for the WebSocket connect/disconnect/message handlers.
+  WebSocketHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'FSM ${Environment} WebSocket handlers - connection table and connection management only'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: WebSocketConnections
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ConnectionTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-WebSocketConnections-${Environment}'
+              - Sid: ManageConnections
+                Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/@connections/*'
+
+  # Role for the WebSocket $connect authorizer: logs only. It verifies JWTs
+  # against the public user pool JWKS and needs no AWS data access.
+  WebSocketAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'FSM ${Environment} WebSocket $connect authorizer - CloudWatch Logs only'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+
+  # Role for the realtime fan-out workers (metrics simulator, DynamoDB stream
+  # handler): read source tables, write metrics, push to WebSocket clients.
+  RealtimeBroadcastRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'FSM ${Environment} realtime broadcast workers - metrics/simulator tables, stream read, WebSocket push'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: RealtimeBroadcast
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadSourceTables
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Customers-${Environment}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-SimulatorConfig-${Environment}'
+              - Sid: WriteMetrics
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Metrics-${Environment}'
+              - Sid: ConnectionTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-WebSocketConnections-${Environment}'
+              - Sid: ReadMetricsStream
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/FSM-Metrics-${Environment}/stream/*'
+              - Sid: ManageConnections
+                Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/@connections/*'
+
+  # Role for the agents API proxy: invoke only FSM AgentCore runtimes and read
+  # their log groups. No DynamoDB access.
+  AgentsApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'FSM ${Environment} agents API - invoke FSM AgentCore runtimes and read their logs'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: AgentCoreRuntimeAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeFsmRuntimes
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/fsm_*'
+                  - !Sub 'arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/fsm_*/runtime-endpoint/*'
+              - Sid: ReadAgentCoreRuntimeLogs
+                Effect: Allow
+                Action:
+                  - logs:DescribeLogStreams
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/fsm_*'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/fsm_*:*'
+
+  # Lambda Functions
+  CustomerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-CustomerFunction-${Environment}'
+      Handler: customerFunction.getAllCustomers
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/customerFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Sub 'FSM-Customers-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  CustomerByIdFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-CustomerByIdFunction-${Environment}'
+      Handler: customerFunction.getCustomerById
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/customerFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Sub 'FSM-Customers-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  UpdateCustomerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-UpdateCustomerFunction-${Environment}'
+      Handler: customerFunction.updateCustomer
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/customerFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Sub 'FSM-Customers-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  JobsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-JobsFunction-${Environment}'
+      Handler: jobFunction.getAll
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/jobFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  JobByIdFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-JobByIdFunction-${Environment}'
+      Handler: jobFunction.getById
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/jobFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  AssignTechnicianFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-AssignTechnicianFunction-${Environment}'
+      Handler: jobFunction.assignTechnician
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/jobFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  UnassignTechnicianFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-UnassignTechnicianFunction-${Environment}'
+      Handler: jobFunction.unassignTechnician
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/jobFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  CompleteJobFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-CompleteJobFunction-${Environment}'
+      Handler: jobFunction.completeJob
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/jobFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  TechniciansFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-TechniciansFunction-${Environment}'
+      Handler: technicianFunction.getAllTechnicians
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/technicianFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  TechnicianByIdFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-TechnicianByIdFunction-${Environment}'
+      Handler: technicianFunction.getTechnicianById
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/technicianFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  InvoicesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-InvoicesFunction-${Environment}'
+      Handler: invoiceFunction.getAllInvoices
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/invoiceFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          INVOICES_TABLE: !Sub 'FSM-Invoices-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  InvoiceByIdFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-InvoiceByIdFunction-${Environment}'
+      Handler: invoiceFunction.getInvoiceById
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/invoiceFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          INVOICES_TABLE: !Sub 'FSM-Invoices-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  MetricsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-MetricsFunction-${Environment}'
+      Handler: metricsFunction.getMetricsByCustomerId
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/metricsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          METRICS_TABLE: !Sub 'FSM-Metrics-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  PartsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-PartsFunction-${Environment}'
+      Handler: partsFunction.getAllParts
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/partsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  PartsByHvacFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-PartsByHvacFunction-${Environment}'
+      Handler: partsFunction.getPartsByHvacModel
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/partsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  PartsReorderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-PartsReorderFunction-${Environment}'
+      Handler: partsFunction.reorderParts
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/partsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  PartsUpdateInventoryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-PartsUpdateInventoryFunction-${Environment}'
+      Handler: partsFunction.updatePartInventory
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/partsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  PartsReorderGetFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-PartsReorderGetFunction-${Environment}'
+      Handler: partsFunction.getReorderableParts
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/partsFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  WebSocketConnectFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-WebSocketConnectFunction-${Environment}'
+      Handler: websocketHandler.handleConnect
+      Role: !GetAtt WebSocketHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/websocketHandler.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Sub 'FSM-WebSocketConnections-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  WebSocketAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-WebSocketAuthorizerFunction-${Environment}'
+      Handler: websocketAuthorizer.handler
+      Role: !GetAtt WebSocketAuthorizerRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/websocketAuthorizer.zip'
+      Runtime: nodejs22.x
+      Timeout: 10
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+
+  WebSocketDisconnectFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-WebSocketDisconnectFunction-${Environment}'
+      Handler: websocketHandler.handleDisconnect
+      Role: !GetAtt WebSocketHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/websocketHandler.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Sub 'FSM-WebSocketConnections-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  WebSocketMessageFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-WebSocketMessageFunction-${Environment}'
+      Handler: websocketHandler.handleMessage
+      Role: !GetAtt WebSocketHandlerRole.Arn
+      Runtime: nodejs22.x
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/websocketHandler.zip'
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Sub 'FSM-WebSocketConnections-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  DataPopulationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-DataPopulationFunction-${Environment}'
+      Handler: index.handler
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Sub 'FSM-Customers-${Environment}'
+          JOBS_TABLE: !Sub 'FSM-Jobs-${Environment}'
+          TECHNICIANS_TABLE: !Sub 'FSM-Technicians-${Environment}'
+          INVOICES_TABLE: !Sub 'FSM-Invoices-${Environment}'
+          METRICS_TABLE: !Sub 'FSM-Metrics-${Environment}'
+          DOCUMENTATION_TABLE: !Sub 'FSM-Documentation-${Environment}'
+          PARTS_TABLE: !Sub 'FSM-Parts-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          CORS_ORIGIN: !Ref CloudFrontUrl
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/dataPopulation.zip'
+      Runtime: nodejs22.x
+ 
+  # Agents API Handler Function
+  AgentsApiHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-AgentsApiHandler-${Environment}'
+      Handler: agentsApiHandler.handler
+      Role: !GetAtt AgentsApiRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/agentsApiHandler.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          AGENT_RUNTIME_ARNS: !Ref AgentRuntimeArns
+          CORS_ORIGIN: !Ref CloudFrontUrl
+
+  # Agents API Options Handler Function
+  AgentsApiOptionsHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-AgentsApiOptionsHandler-${Environment}'
+      Handler: agentsApiHandler.optionsHandler
+      Role: !GetAtt AgentsApiRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/agentsApiHandler.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          CORS_ORIGIN: !Ref CloudFrontUrl
+  
+  SimulatorControlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'FSM-SimulatorControlFunction-${Environment}'
+      Handler: simulatorControlFunction.handler
+      Role: !GetAtt ApiDataAccessRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub '${LambdaCodePrefix}/simulatorControlFunction.zip'
+      Runtime: nodejs22.x
+      Timeout: 30
+      Environment:
+        Variables:
+          SIMULATOR_CONFIG_TABLE: !Sub 'FSM-SimulatorConfig-${Environment}'
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          CORS_ORIGIN: !Ref CloudFrontUrl 
+
+
+
+Outputs:
+  StackName:
+    Description: Name of this stack
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+
+  CustomerFunctionArn:
+    Description: ARN of the Customer Lambda function
+    Value: !GetAtt CustomerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomerFunctionArn'
+
+  CustomerByIdFunctionArn:
+    Description: ARN of the CustomerById Lambda function
+    Value: !GetAtt CustomerByIdFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomerByIdFunctionArn'
+
+  JobsFunctionArn:
+    Description: ARN of the Jobs Lambda function
+    Value: !GetAtt JobsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-JobsFunctionArn'
+
+  JobByIdFunctionArn:
+    Description: ARN of the JobById Lambda function
+    Value: !GetAtt JobByIdFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-JobByIdFunctionArn'
+
+  InvoicesFunctionArn:
+    Description: ARN of the Invoices Lambda function
+    Value: !GetAtt InvoicesFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-InvoicesFunctionArn'
+
+  InvoiceByIdFunctionArn:
+    Description: ARN of the InvoiceById Lambda function
+    Value: !GetAtt InvoiceByIdFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-InvoiceByIdFunctionArn'
+
+  AssignTechnicianFunctionArn:
+    Description: ARN of the AssignTechnician Lambda function
+    Value: !GetAtt AssignTechnicianFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AssignTechnicianFunctionArn'
+
+  UnassignTechnicianFunctionArn:
+    Description: ARN of the UnassignTechnician Lambda function
+    Value: !GetAtt UnassignTechnicianFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-UnassignTechnicianFunctionArn'
+
+  CompleteJobFunctionArn:
+    Description: ARN of the CompleteJob Lambda function
+    Value: !GetAtt CompleteJobFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CompleteJobFunctionArn'
+
+  TechniciansFunctionArn:
+    Description: ARN of the Technicians Lambda function
+    Value: !GetAtt TechniciansFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TechniciansFunctionArn'
+
+  MetricsFunctionArn:
+    Description: ARN of the Metrics Lambda function
+    Value: !GetAtt MetricsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsFunctionArn'
+
+  MetricsFunctionName:
+    Description: Name of the Metrics Lambda function
+    Value: !Ref MetricsFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-MetricsFunctionName'
+
+  PartsFunctionName:
+    Description: Name of the Parts Lambda function
+    Value: !Ref PartsFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsFunctionName'
+
+  CustomerFunctionName:
+    Description: Name of the Customer Lambda function
+    Value: !Ref CustomerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomerFunctionName'
+
+  CustomerByIdFunctionName:
+    Description: Name of the CustomerById Lambda function
+    Value: !Ref CustomerByIdFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomerByIdFunctionName'
+
+  TechniciansFunctionName:
+    Description: Name of the Technicians Lambda function
+    Value: !Ref TechniciansFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-TechniciansFunctionName'
+
+  JobByIdFunctionName:
+    Description: Name of the JobById Lambda function
+    Value: !Ref JobByIdFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-JobByIdFunctionName'
+
+  JobsFunctionName:
+    Description: Name of the Jobs Lambda function
+    Value: !Ref JobsFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-JobsFunctionName'
+
+  UpdateCustomerFunctionName:
+    Description: Name of the UpdateCustomer Lambda function
+    Value: !Ref UpdateCustomerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-UpdateCustomerFunctionName'
+
+  WebSocketConnectFunctionArn:
+    Description: ARN of the WebSocketConnect Lambda function
+    Value: !GetAtt WebSocketConnectFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketConnectFunctionArn'
+
+  WebSocketAuthorizerFunctionArn:
+    Description: ARN of the WebSocket $connect authorizer Lambda function
+    Value: !GetAtt WebSocketAuthorizerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketAuthorizerFunctionArn'
+
+  WebSocketDisconnectFunctionArn:
+    Description: ARN of the WebSocketDisconnect Lambda function
+    Value: !GetAtt WebSocketDisconnectFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketDisconnectFunctionArn'
+
+  WebSocketMessageFunctionArn:
+    Description: ARN of the WebSocketMessage Lambda function
+    Value: !GetAtt WebSocketMessageFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketMessageFunctionArn'
+
+  DataPopulationFunctionArn:
+    Description: ARN of the DataPopulation Lambda function
+    Value: !GetAtt DataPopulationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DataPopulationFunctionArn'
+      
+  PartsFunctionArn:
+    Description: ARN of the Parts Lambda function
+    Value: !GetAtt PartsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsFunctionArn'
+
+  PartsByHvacFunctionArn:
+    Description: ARN of the PartsByHvac Lambda function
+    Value: !GetAtt PartsByHvacFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsByHvacFunctionArn'
+      
+  PartsReorderFunctionArn:
+    Description: ARN of the Parts Reorder Lambda function
+    Value: !GetAtt PartsReorderFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsReorderFunctionArn'
+
+  PartsUpdateInventoryFunctionArn:
+    Description: ARN of the Parts Reorder Lambda function
+    Value: !GetAtt PartsUpdateInventoryFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsUpdateInventoryFunctionArn'
+      
+  PartsReorderGetFunctionArn:
+    Description: ARN of the Parts Reorder GET Lambda function
+    Value: !GetAtt PartsReorderGetFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PartsReorderGetFunctionArn'
+  
+  AgentsApiHandlerFunctionArn:
+    Description: ARN of the Agents API Handler Lambda function
+    Value: !GetAtt AgentsApiHandlerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentsApiHandlerFunctionArn'
+  
+  AgentsApiOptionsHandlerFunctionArn:
+    Description: ARN of the Agents API Options Handler Lambda function
+    Value: !GetAtt AgentsApiOptionsHandlerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentsApiOptionsHandlerFunctionArn'
+  
+  SimulatorControlFunctionArn:
+    Description: ARN of the Simulator Control Lambda function
+    Value: !GetAtt SimulatorControlFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-SimulatorControlFunctionArn'
+
+  RealtimeBroadcastRoleArn:
+    Description: ARN of the role used by realtime broadcast workers (metrics stream handler)
+    Value: !GetAtt RealtimeBroadcastRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RealtimeBroadcastRoleArn'
+
+
