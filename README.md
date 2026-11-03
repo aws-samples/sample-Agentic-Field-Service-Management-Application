@@ -453,6 +453,41 @@ For a built image, run it on a free loopback port and verify `GET /ping` returns
 
 The script prints the CloudFront URL and service endpoints after its smoke checks pass. Cognito sends the initial administrator invitation to `--admin-email`; no temporary password is printed or fixed in code. Review the generated AgentCore result files and CloudFormation outputs for the authoritative runtime ARNs and resource IDs.
 
+## Cleanup
+
+Remove one environment with the steps below. Replace `ENV`, `REGION`, and `ACCOUNT_ID` with the values you deployed with, and add `--profile PROFILE` to each command if you used one.
+
+1. Empty the versioned React app bucket, then delete the CloudFormation stack. CloudFormation cannot delete a bucket that still holds object versions.
+
+   ```bash
+   python3 -c "import boto3; boto3.resource('s3').Bucket('fsm-react-app-ACCOUNT_ID-REGION-ENV-v9').object_versions.delete()"
+   aws cloudformation delete-stack --region REGION --stack-name FSM-ENV-v9
+   aws cloudformation wait stack-delete-complete --region REGION --stack-name FSM-ENV-v9
+   ```
+
+2. Delete the AgentCore resources created outside CloudFormation: the eight runtimes, their eight IAM roles (`FSM-AgentCore-ENV-*`), and the eight ECR repositories (`bedrock-agentcore-fsm_*`). Run with `--dry-run` first to see the list. The script only touches these exact names. It keeps the ECR repositories while another FSM environment still has runtimes, because all environments share them; pass `--keep-images` to keep them anyway.
+
+   ```bash
+   scripts/.venv-agentcore-deploy/bin/python scripts/cleanup-agentcore-resources.py \
+     --expected-account ACCOUNT_ID --region REGION --environment ENV --dry-run
+   scripts/.venv-agentcore-deploy/bin/python scripts/cleanup-agentcore-resources.py \
+     --expected-account ACCOUNT_ID --region REGION --environment ENV --confirm DELETE-FSM-ENV
+   ```
+
+   The virtual environment is created by `deploy-stack.sh`. Any Python 3 with `boto3` also works. The confirmation value uses the environment in capitals, for example `DELETE-FSM-DEV`.
+
+3. Empty and delete the Lambda artifact bucket that `deploy-stack.sh` created:
+
+   ```bash
+   python3 -c "import boto3; b = boto3.resource('s3').Bucket('fsm-lambda-code-ACCOUNT_ID-REGION-ENV-cfn'); b.object_versions.delete(); b.delete()"
+   ```
+
+These are not deleted automatically:
+
+- CloudWatch log groups for the runtimes (`/aws/bedrock-agentcore/runtimes/fsm_*`) and for the Lambda functions (`/aws/lambda/FSM-*`). Delete them in the CloudWatch console when you no longer need the logs.
+- An AgentCore Gateway and Secrets Manager secret, if you created them for the optional Gateway integration. You created them outside this sample, so delete them yourself.
+- The local result files `scripts/.rebuild-results.json`, `scripts/.agentcore-deployment-results.json`, and `scripts/.agent-runtime-arns.json`.
+
 ## Component Explanations
 
 ### CloudFormation Templates
