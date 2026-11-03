@@ -101,7 +101,10 @@ class AgentCoreDeployerTests(unittest.TestCase):
     def test_runtime_environment_only_enables_gateway_with_secret(self):
         base = argparse.Namespace(environment="prod", gateway_secret_arn=None, gateway_url=None)
         communication = next(agent for agent in deployer.AGENTS if agent.key == "communication")
-        self.assertEqual(deployer.runtime_environment(communication, base), {})
+        self.assertEqual(
+            deployer.runtime_environment(communication, base),
+            {"UNIFIED_TRACES_DESTINATION_ENABLED": "false"},
+        )
         base.gateway_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test"
         base.gateway_url = "https://example.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
         environment = deployer.runtime_environment(communication, base)

@@ -242,6 +242,28 @@ Resources:
       ParentId: !Ref AgentsResource
       PathPart: '{agent}'
 
+  # Agent trace resources: /agents/trace/{agent}/{session}
+  AgentTraceResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref AgentsResource
+      PathPart: 'trace'
+
+  AgentTraceAgentResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref AgentTraceResource
+      PathPart: '{agent}'
+
+  AgentTraceSessionResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref AgentTraceAgentResource
+      PathPart: '{session}'
+
   # Methods for Customers
   GetCustomersMethod:
     Type: AWS::ApiGateway::Method
@@ -995,6 +1017,41 @@ Resources:
                 Fn::ImportValue:
                   Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiOptionsHandlerFunctionArn"
 
+  # GET Method for Agent Trace (reasoning trace shown in the "Thinking" panel)
+  AgentTraceGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AgentTraceSessionResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AgentsApiHandlerFunctionArn}/invocations
+          - AgentsApiHandlerFunctionArn: !ImportValue
+              Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiHandlerFunctionArn"
+
+  # OPTIONS Method for Agent Trace
+  AgentTraceOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AgentTraceSessionResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AgentsApiOptionsHandlerFunctionArn}/invocations"
+            - AgentsApiOptionsHandlerFunctionArn:
+                Fn::ImportValue:
+                  Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiOptionsHandlerFunctionArn"
+
   # Simulator methods
   SimulatorStatusMethod:
     Type: AWS::ApiGateway::Method
@@ -1120,6 +1177,8 @@ Resources:
       - PartsInventoryOptionsMethod
       - AgentTypePostMethod
       - AgentTypeOptionsMethod
+      - AgentTraceGetMethod
+      - AgentTraceOptionsMethod
       - SimulatorStatusMethod
       - SimulatorStartMethod
       - SimulatorStopMethod
@@ -1403,6 +1462,15 @@ Resources:
         Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiHandlerFunctionArn"
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/POST/agents/*'
+
+  AgentsApiTraceFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !ImportValue
+        Fn::Sub: "${LambdaFunctionsStackName}-AgentsApiHandlerFunctionArn"
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/GET/agents/trace/*'
 
   AgentsApiOptionsHandlerFunctionPermission:
     Type: AWS::Lambda::Permission

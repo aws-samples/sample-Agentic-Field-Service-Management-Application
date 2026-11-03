@@ -329,6 +329,11 @@ def runtime_environment(agent: AgentSpec, args: argparse.Namespace) -> dict[str,
         variable: table_name(logical, args.environment)
         for variable, logical in agent.table_env.items()
     }
+    # Keep split telemetry. Runtimes created on or after 2026-07-20 default to
+    # unified telemetry, which writes spans to the "spans" stream and emits no
+    # event records. lambda/agentsApiHandler.js builds the "Thinking" panel from
+    # the event records in the "otel-rt-logs" stream, so it needs split mode.
+    environment["UNIFIED_TRACES_DESTINATION_ENABLED"] = "false"
     if agent.name == "fsm_parts_inventory_agent":
         environment["LOW_STOCK_THRESHOLD"] = "10"
     if agent.uses_gateway and args.gateway_secret_arn:

@@ -9,8 +9,8 @@ A comprehensive Field Service Management application for HVAC maintenance compan
 ### 1. Clone the Repository
 
 ```bash
-git clone git@ssh.gitlab.aws.dev:aws-fsm-genai/FSM.git
-cd FSM
+git clone https://github.com/aws-samples/sample-Agentic-Field-Service-Management-Application.git
+cd sample-Agentic-Field-Service-Management-Application
 ```
 
 ### 2. Validate the Deployment Inputs
