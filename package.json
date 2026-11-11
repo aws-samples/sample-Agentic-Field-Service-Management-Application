@@ -8,7 +8,7 @@
     "@aws-amplify/core": "^6.12.3",
     "@cloudscape-design/components": "^3.0.1016",
     "@cloudscape-design/global-styles": "^1.0.44",
-    "aws-amplify": "^6.15.3",
+    "aws-amplify": "^6.22.2",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.10.0",
     "leaflet": "^1.9.4",
