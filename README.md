@@ -197,74 +197,27 @@ The simulator is particularly useful for:
 
 The Field Service Management (FSM) application is a fully serverless solution on AWS, organized into four planes:
 
-1. **Edge & Web Plane** — Amazon CloudFront fronts an S3 origin (with Origin Access Control) that hosts the React + Cloudscape SPA. CloudFront also routes API traffic so the SPA, the REST API, and the WebSocket API share a single origin from the browser's perspective.
-2. **Identity Plane** — Amazon Cognito User Pools authenticate human users (operations managers, schedulers, technicians, finance, customers). The SPA sends the Cognito ID token on every REST call (`Authorization` header) and on the WebSocket connect (`?token=`); API Gateway verifies it (the WebSocket check runs in a dedicated authorizer Lambda) before the request reaches the application Lambdas.
+1. **Edge & Web Plane** — Amazon CloudFront serves the React + Cloudscape SPA over HTTPS from a private S3 bucket, which only CloudFront can read through Origin Access Control (OAC). CloudFront serves only the static assets: the SPA calls the REST API and the WebSocket API directly on their API Gateway endpoints.
+2. **Identity Plane** — Amazon Cognito User Pools authenticate human users (operations managers, schedulers, technicians, finance, customers). The SPA uses its own sign-in form, which calls the Cognito `InitiateAuth` API directly with the `USER_PASSWORD_AUTH` flow (`src/services/directAuthService.js`); it does not use the Cognito hosted UI. The SPA sends the Cognito ID token on every REST call (`Authorization` header) and on the WebSocket connect (`?token=`); API Gateway verifies it (the WebSocket check runs in a dedicated authorizer Lambda) before the request reaches the application Lambdas.
 3. **Application & Data Plane** — Amazon API Gateway (REST + WebSocket) terminates HTTPS, applies CORS, rejects requests without a valid Cognito ID token (Cognito User Pools authorizer on REST, Lambda authorizer on WebSocket `$connect`), and invokes AWS Lambda. Lambda functions read/write Amazon DynamoDB tables and publish WebSocket messages back to connected clients via DynamoDB Streams. AWS CloudFormation provisions the entire stack as nested templates.
-4. **AI Plane (Amazon Bedrock AgentCore)** — Eight specialist agents run as containerized workloads on Amazon Bedrock AgentCore Runtime. Each agent is built on the Strands SDK with Claude Sonnet 4.6 as the underlying model, has its own ECR image and IAM execution role, and exposes domain-specific tools that read/write the same DynamoDB tables the API Lambdas use. The Orchestrator Agent fronts the interactive "Ask Assistant" chat and can call the other specialists or read DynamoDB directly. AgentCore handles autoscaling, isolation (one Firecracker microVM per session), and OpenTelemetry traces that surface in CloudWatch and back in the UI.
+4. **AI Plane (Amazon Bedrock AgentCore)** — Eight agents run as containerized workloads on Amazon Bedrock AgentCore Runtime: the Orchestrator Agent and seven specialist agents (billing and invoicing, parts inventory, technician scheduling, HVAC monitoring, customer communication, customer authentication, and technical documentation). Each agent is built on the Strands SDK with Claude Sonnet 4.6 (through the US cross-Region inference profile) as the underlying model, has its own ECR image and IAM execution role, and exposes domain-specific tools that read/write the same DynamoDB tables the API Lambdas use. The Orchestrator Agent fronts the interactive "Ask Assistant" chat and answers from its own DynamoDB tools; it does not call the specialist agents. The specialists are invoked by the multi-agent workflow endpoint. AgentCore handles autoscaling, isolation (one Firecracker microVM per session), and OpenTelemetry traces that surface in CloudWatch and back in the UI.
 
 ### Architecture Diagram
 
-A full architecture diagram is available as a draw.io file at `docs/architecture.drawio` (open with [diagrams.net](https://app.diagrams.net/) or the VS Code "Draw.io Integration" extension). A simplified ASCII view:
+![FSM agentic application architecture on Amazon Bedrock AgentCore](docs/FSM%20Architecture.jpg)
 
-```
-                       ┌──────────────────────────┐
-                       │        End User          │
-                       │   (Browser / Mobile)     │
-                       └────────────┬─────────────┘
-                                    │ HTTPS
-                       ┌────────────▼─────────────┐
-                       │       CloudFront         │
-                       │   (CDN, OAC, WAF-ready)  │
-                       └─────┬───────────┬────────┘
-                             │           │
-              static assets  │           │ /api, /ws
-                             │           │
-                  ┌──────────▼─┐     ┌───▼─────────────────┐
-                  │    S3      │     │    API Gateway      │
-                  │  (SPA)     │     │  REST + WebSocket   │
-                  └────────────┘     └───────┬─────────────┘
-                                             │
-                  ┌────────────┐    ┌────────▼─────────┐
-                  │  Cognito   │◄──►│      Lambda      │
-                  │ User Pools │    │  Data + Agents   │
-                  └────────────┘    │   API Handlers   │
-                                    └────────┬─────────┘
-                                             │
-                          ┌──────────────────┼──────────────────┐
-                          │                  │                  │
-                 ┌────────▼─────┐   ┌────────▼────────┐   ┌─────▼────────────┐
-                 │   DynamoDB   │   │   CloudWatch    │   │  Bedrock         │
-                 │   Tables     │   │  Logs + OTel    │   │  AgentCore       │
-                 │              │   │     Traces      │   │  Runtime         │
-                 │ Customers    │   │                 │   │                  │
-                 │ Jobs         │   │                 │   │ Orchestrator     │
-                 │ Technicians  │   │                 │   │ HVAC Monitor     │
-                 │ Invoices     │   │                 │   │ Parts Inventory  │
-                 │ Metrics      │   │                 │   │ Tech Scheduling  │
-                 │ Parts        │   │                 │   │ Customer Comms   │
-                 └──────┬───────┘   └─────────────────┘   │ Customer Auth    │
-                        │ Streams                         │ Billing          │
-                        └────────────► Lambda ─►          │ Tech Docs        │
-                                       WebSocket          └────────┬─────────┘
-                                       broadcast                   │
-                                                                   │ tools
-                                                          ┌────────▼─────────┐
-                                                          │   DynamoDB       │
-                                                          │  (same tables,   │
-                                                          │   per-agent IAM) │
-                                                          └──────────────────┘
-```
+The numbered steps in the diagram are described in the data-flow panel on its right. The request flows below cover the same paths.
 
 ### Request Flows
 
 **Standard data read (e.g. customer dashboard):**
-Browser → CloudFront → API Gateway (REST, Cognito ID-token auth) → Lambda → DynamoDB → JSON back to browser.
+Browser → API Gateway REST API (Cognito ID-token check) → Lambda → DynamoDB → JSON back to the browser. CloudFront is not in this path; it only serves the SPA's static files.
 
 **Real-time HVAC metrics push:**
 DynamoDB Streams → Lambda stream handler → API Gateway WebSocket → all subscribed browser clients.
 
-**Ask Assistant chat (new):**
-Browser → CloudFront → API Gateway → `FSM-AgentsApiHandler` Lambda → AgentCore `InvokeAgentRuntime` → Orchestrator container → DynamoDB tools (or specialist agents) → response back through the same path. CloudWatch captures OTel spans which the UI fetches via `/agents/trace/{agentKey}/{sessionId}` to render the "Thinking" panel.
+**Ask Assistant chat:**
+Browser → API Gateway REST API → `FSM-AgentsApiHandler` Lambda → AgentCore `InvokeAgentRuntime` → Orchestrator container → DynamoDB tools → response back through the same path. CloudWatch captures OTel spans, which the UI fetches a few seconds later via `GET /agents/trace/{agent}/{session}` to render the "Thinking" panel.
 
 **Workflow trigger (multi-agent):**
 The Workflow tab POSTs to `/agents/workflow`, which fans out to 4–6 specialist agents in parallel via AgentCore, aggregates their reasoning, and returns a single response with per-step status and trace IDs.
@@ -273,7 +226,7 @@ The Workflow tab POSTs to `/agents/workflow`, which fans out to 4–6 specialist
 
 #### Frontend
 - **React 18** SPA with AWS Cloudscape Design System
-- **AWS Amplify Auth** for Cognito hosted-UI flows; raw `fetch` for data calls
+- **Custom Cognito sign-in** that calls the Cognito user pool API directly (`src/services/directAuthService.js`); raw `fetch` for data calls
 - **react-router-dom** for client-side routing
 - **react-leaflet** for the scheduler map view
 
