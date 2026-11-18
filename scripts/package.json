@@ -7,8 +7,8 @@
     "update-jobs": "node update-jobs-with-customer-ids.js"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.350.0",
-    "@aws-sdk/lib-dynamodb": "^3.350.0",
+    "@aws-sdk/client-dynamodb": "^3.1171.0",
+    "@aws-sdk/lib-dynamodb": "^3.1171.0",
     "axios": "^1.10.0"
   }
 }
